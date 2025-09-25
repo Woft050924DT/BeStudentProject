@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../user/user.service';
+import { AuthResponse } from './interface/auth-response.interface';
+
 // Local payload type
 interface JwtPayload {
   sub: string;
   email?: string;
   fullName?: string;
+  roles?: string[];
 }
 import { Users } from '../user/user.entity';
 import { RegisterDto } from './interface/register.dto';
@@ -19,6 +22,7 @@ import { LoginDto } from './interface/login.dto';
 import { ChangePasswordDto } from './interface/changePassword.dto';
 import { ResetPasswordDto } from './interface/resetPassword.dto';
 import { ForgotPasswordDto } from './interface/forgotPassword.dto';
+import { UserRole } from '../models/enum/userRole.enum';
 import * as bcrypt from 'bcrypt';
 // import { randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
@@ -35,7 +39,7 @@ export class AuthService {
   async register(
     registerDto: RegisterDto,
   ): Promise<{ message: string; user: Partial<Users> }> {
-    const { email, password, username, fullName } = registerDto;
+    const { email, password, username, fullName, role } = registerDto;
 
     // Kiểm tra email đã tồn tại (nếu cung cấp)
     if (email) {
@@ -51,12 +55,14 @@ export class AuthService {
       throw new ConflictException('Username đã được sử dụng');
     }
 
-    // Tạo user mới
+    // Tạo user mới với role mặc định hoặc role được chỉ định
+    const userRole = role || UserRole.STUDENT;
     const user = await this.userService.create({
       email,
       username,
       password,
       fullName,
+      role: userRole.toUpperCase(),
       status: true,
     });
 
@@ -74,7 +80,7 @@ export class AuthService {
   // Đăng nhập bằng username/mật khẩu
   async login(
     loginDto: LoginDto,
-  ): Promise<{ access_token: string; user: Partial<Users> }> {
+  ): Promise<AuthResponse> {
     const { username, password } = loginDto;
 
     // Xác thực username và mật khẩu
@@ -110,7 +116,6 @@ export class AuthService {
     );
   }
 
-  // Gửi lại email xác thực
   resendVerificationEmail(_email: string): Promise<{ message: string }> {
     void _email;
     return Promise.reject(
@@ -162,18 +167,21 @@ export class AuthService {
   }
 
 
-  // Tạo JWT token và trả về thông tin user
   private generateTokenResponse(
     user: Users,
-  ): { access_token: string; user: Partial<Users> } {
+  ): AuthResponse {
     if (!user.id) {
       throw new BadRequestException('Thông tin user không hợp lệ');
     }
+
+    // Lấy role của user từ trường role trực tiếp
+    const userRole = user.role ? [user.role.toLowerCase()] : ['student'];
 
     const payload: JwtPayload = {
       sub: user.id.toString(),
       email: user.email || undefined,
       fullName: user.fullName || undefined,
+      roles: userRole,
     };
 
     return {
@@ -183,7 +191,7 @@ export class AuthService {
         email: user.email,
         username: user.username,
         fullName: user.fullName,
-
+        roles: userRole,
       },
     };
   }

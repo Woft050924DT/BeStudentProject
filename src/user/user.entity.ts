@@ -49,6 +49,9 @@ export class Users {
   @Column({ name: 'status', type: 'boolean', default: true })
   status: boolean;
 
+  @Column({ name: 'role', type: 'varchar', length: 20, default: 'STUDENT' })
+  role: string;
+
   @Column({ name: 'last_login', type: 'timestamp', nullable: true })
   lastLogin?: Date;
 

@@ -4,7 +4,10 @@ import {
   MinLength,
   MaxLength,
   Matches,
+  IsOptional,
+  IsEnum,
 } from 'class-validator';
+import { UserRole } from '../../models/enum/userRole.enum';
 
 export class RegisterDto {
   @IsEmail({}, { message: 'Invalid email address' })
@@ -30,4 +33,8 @@ export class RegisterDto {
   @IsString({ message: 'Full name must be a string' })
   @MaxLength(255, { message: 'Full name must not exceed 255 characters' })
   fullName: string;
+
+  @IsEnum(UserRole, { message: 'Role must be a valid user role' })
+  @IsOptional()
+  role?: UserRole;
 }
