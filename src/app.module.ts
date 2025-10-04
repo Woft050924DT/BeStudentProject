@@ -19,6 +19,8 @@ import { TeacherModule } from './teacher/teacher.module';
 import { AdminModule } from './admin/admin.module';
 import { OrganizationModule } from './organization/organization.module';
 import { InstructorModule } from './instructor/instructor.module';
+import { RedisModule } from './redis/redis.module';
+import { SocketModule } from './socket/socket.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { InstructorModule } from './instructor/instructor.module';
       logging: true,
     }),
     
+    RedisModule,
+    SocketModule,
     UserModule,
     JwtModule,
     AuthModule,
