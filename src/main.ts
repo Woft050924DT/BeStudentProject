@@ -2,10 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from'./app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
+
+  // Cấu hình cookie parser
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  app.use(cookieParser());
 
   // Cấu hình CORS
   app.enableCors({
@@ -29,5 +34,6 @@ async function bootstrap() {
   logger.log(`🚀 Application is running on: http://localhost:${port}`);
   logger.log(`📡 Socket.IO server is running on: http://localhost:${port}`);
   logger.log(`🔴 Redis connection configured`);
+  logger.log(`🍪 Cookie parser enabled`);
 }
 void bootstrap();

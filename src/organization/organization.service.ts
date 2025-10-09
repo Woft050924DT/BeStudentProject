@@ -25,7 +25,6 @@ export class OrganizationService {
   async createFaculty(createFacultyDto: CreateFacultyDto): Promise<Faculty> {
     const { facultyCode } = createFacultyDto;
     
-    // Check if faculty code already exists
     const existingFaculty = await this.facultyRepository.findOne({
       where: { facultyCode }
     });

@@ -273,4 +273,117 @@ export class SocketGateway
   async broadcast(event: string, data: any) {
     this.server.emit(event, data);
   }
+
+  // ==================== THESIS EVENTS ====================
+
+  // Lấy danh sách sinh viên đăng ký đề tài cho giảng viên
+  @SubscribeMessage('get_student_registrations')
+  async handleGetStudentRegistrations(
+    @MessageBody() data: { thesisRoundId?: number; status?: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.userId || client.userRole !== 'teacher') {
+      client.emit('error', { message: 'Unauthorized' });
+      return;
+    }
+
+    // TODO: Implement get student registrations via socket
+    client.emit('student_registrations', {
+      message: 'Danh sách sinh viên đăng ký đề tài',
+      data: []
+    });
+  }
+
+  // Lấy danh sách đề tài được đề xuất
+  @SubscribeMessage('get_proposed_topics')
+  async handleGetProposedTopics(
+    @MessageBody() data: { thesisRoundId?: number; instructorId?: number; isTaken?: boolean },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.userId) {
+      client.emit('error', { message: 'Not authenticated' });
+      return;
+    }
+
+    // TODO: Implement get proposed topics via socket
+    client.emit('proposed_topics', {
+      message: 'Danh sách đề tài được đề xuất',
+      data: []
+    });
+  }
+
+  // Lấy danh sách đợt luận văn
+  @SubscribeMessage('get_thesis_rounds')
+  async handleGetThesisRounds(
+    @MessageBody() data: { thesisTypeId?: number; departmentId?: number; facultyId?: number; status?: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.userId) {
+      client.emit('error', { message: 'Not authenticated' });
+      return;
+    }
+
+    // TODO: Implement get thesis rounds via socket
+    client.emit('thesis_rounds', {
+      message: 'Danh sách đợt luận văn',
+      data: []
+    });
+  }
+
+  // Join room theo đợt luận văn
+  @SubscribeMessage('join_thesis_round')
+  async handleJoinThesisRound(
+    @MessageBody() data: { thesisRoundId: number },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.userId) {
+      client.emit('error', { message: 'Not authenticated' });
+      return;
+    }
+
+    const roomName = `thesis_round:${data.thesisRoundId}`;
+    client.join(roomName);
+    client.emit('joined_thesis_round', { 
+      room: roomName,
+      thesisRoundId: data.thesisRoundId 
+    });
+
+    this.logger.log(`User ${client.userId} joined thesis round ${data.thesisRoundId}`);
+  }
+
+  // Leave room theo đợt luận văn
+  @SubscribeMessage('leave_thesis_round')
+  async handleLeaveThesisRound(
+    @MessageBody() data: { thesisRoundId: number },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    if (!client.userId) {
+      client.emit('error', { message: 'Not authenticated' });
+      return;
+    }
+
+    const roomName = `thesis_round:${data.thesisRoundId}`;
+    client.leave(roomName);
+    client.emit('left_thesis_round', { 
+      room: roomName,
+      thesisRoundId: data.thesisRoundId 
+    });
+
+    this.logger.log(`User ${client.userId} left thesis round ${data.thesisRoundId}`);
+  }
+
+  // Gửi thông báo cho room đợt luận văn
+  async sendToThesisRound(thesisRoundId: number, event: string, data: any) {
+    this.server.to(`thesis_round:${thesisRoundId}`).emit(event, data);
+  }
+
+  // Gửi thông báo cho tất cả giảng viên
+  async sendToAllTeachers(event: string, data: any) {
+    this.server.to('role:teacher').emit(event, data);
+  }
+
+  // Gửi thông báo cho tất cả sinh viên
+  async sendToAllStudents(event: string, data: any) {
+    this.server.to('role:student').emit(event, data);
+  }
 }

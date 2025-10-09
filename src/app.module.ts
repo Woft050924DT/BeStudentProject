@@ -11,6 +11,12 @@ import { Department } from './organization/entities/department.entity';
 import { Major } from './organization/entities/major.entity';
 import { Class } from './organization/entities/class.entity';
 import { Instructor } from './instructor/entities/instructor.entity';
+import { ThesisType } from './thesis/entities/thesis-type.entity';
+import { ThesisRound } from './thesis/entities/thesis-round.entity';
+import { ProposedTopic } from './thesis/entities/proposed-topic.entity';
+import { TopicRegistration } from './thesis/entities/topic-registration.entity';
+import { Thesis } from './thesis/entities/thesis.entity';
+import { ThesisRoundClass } from './thesis/entities/thesis-round-class.entity';
 import { JwtModule } from './jwt/jwt.module';
 import { AuthModule } from './auth/auth.module';
 import {ConfigModule} from '@nestjs/config';
@@ -21,6 +27,7 @@ import { OrganizationModule } from './organization/organization.module';
 import { InstructorModule } from './instructor/instructor.module';
 import { RedisModule } from './redis/redis.module';
 import { SocketModule } from './socket/socket.module';
+import { ThesisModule } from './thesis/thesis.module';
 
 @Module({
   imports: [
@@ -42,7 +49,13 @@ import { SocketModule } from './socket/socket.module';
         Department,
         Major,
         Class,
-        Instructor
+        Instructor,
+        ThesisType,
+        ThesisRound,
+        ProposedTopic,
+        TopicRegistration,
+        Thesis,
+        ThesisRoundClass
       ],
       synchronize: false,
       logging: true,
@@ -58,6 +71,7 @@ import { SocketModule } from './socket/socket.module';
     AdminModule,
     OrganizationModule,
     InstructorModule,
+    ThesisModule,
   ],
 })
 export class AppModule {}

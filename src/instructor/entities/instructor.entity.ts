@@ -12,6 +12,9 @@ import { Users } from '../../user/user.entity';
 import { Department } from '../../organization/entities/department.entity';
 import { Faculty } from '../../organization/entities/faculty.entity';
 import { Class } from '../../organization/entities/class.entity';
+import { ProposedTopic } from '../../thesis/entities/proposed-topic.entity';
+import { TopicRegistration } from '../../thesis/entities/topic-registration.entity';
+import { Thesis } from '../../thesis/entities/thesis.entity';
 
 @Entity('instructors')
 export class Instructor {
@@ -65,4 +68,13 @@ export class Instructor {
 
   @OneToMany(() => Class, (classEntity) => classEntity.advisor)
   classesAsAdvisor: Class[];
+
+  @OneToMany(() => ProposedTopic, (proposedTopic) => proposedTopic.instructor)
+  proposedTopics: ProposedTopic[];
+
+  @OneToMany(() => TopicRegistration, (topicRegistration) => topicRegistration.instructor)
+  topicRegistrations: TopicRegistration[];
+
+  @OneToMany(() => Thesis, (thesis) => thesis.supervisor)
+  supervisedTheses: Thesis[];
 }
