@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtService } from './jwt.service';
 import { JwtController } from './jwt.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       }),
       inject: [ConfigService],
     }),
+    RedisModule,
   ],
   controllers: [JwtController],
   providers: [JwtService, JwtAuthGuard],

@@ -129,4 +129,26 @@ export class GetThesisRoundsDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string; // Tìm kiếm theo tên hoặc mã đợt
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: string; // createdAt, roundName, startDate
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'ASC' | 'DESC';
 }

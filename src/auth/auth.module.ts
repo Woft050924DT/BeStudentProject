@@ -9,6 +9,8 @@ import { InstructorModule } from '../instructor/instructor.module';
 import { ConfigModule } from '@nestjs/config';
 import { MailModule } from "../mail/mail.module";
 import { PassportModule } from '@nestjs/passport';
+import { RedisModule } from '../redis/redis.module';
+
 @Module({
   imports: [
     PassportModule,
@@ -21,6 +23,7 @@ import { PassportModule } from '@nestjs/passport';
     InstructorModule,
     ConfigModule,
     MailModule,
+    RedisModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

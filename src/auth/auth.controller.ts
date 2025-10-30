@@ -19,11 +19,17 @@ import { ForgotPasswordDto } from './interface/forgotPassword.dto';
 import { ResetPasswordDto } from './interface/resetPassword.dto';
 import { ChangePasswordDto } from './interface/changePassword.dto';
 import { JwtAuthGuard } from '../jwt/jwt-auth.guard';
+import { RedisService } from '../redis/redis.service';
+import { JwtService } from '@nestjs/jwt';
 
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly redisService: RedisService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -51,7 +57,6 @@ export class AuthController {
       });
     }
 
-    // Vẫn trả về token trong response (để frontend có thể lưu nếu cần)
     return {
       message: 'Đăng nhập thành công',
       user: result.user,
@@ -66,26 +71,102 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Response({ passthrough: true }) res: ExpressResponse) {
-    // Xóa cookies
-    res.clearCookie('access_token');
-    res.clearCookie('refresh_token');
-    
-    return {
-      message: 'Đăng xuất thành công'
-    };
+  async logout(
+    @Request() req: any,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
+    try {
+      const accessToken = (req.cookies?.access_token as string) || 
+                          (req.headers?.authorization?.replace('Bearer ', '') as string);
+      
+      const refreshToken = req.cookies?.refresh_token as string;
+
+      if (accessToken) {
+        try {
+          const payload = this.jwtService.verify(accessToken) as any;
+          const exp = (payload.exp as number) * 1000; // Convert to milliseconds
+          const now = Date.now();
+          const ttl = Math.max(0, Math.floor((exp - now) / 1000));
+          
+          if (ttl > 0) {
+            // Thêm token vào blacklist với TTL = thời gian còn lại của token
+            await this.redisService.set(`blacklist:access:${accessToken}`, 'true', ttl);
+          }
+
+          // Xóa session của user nếu có
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          if (payload.sub) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+            await this.redisService.del(`session:${String(payload.sub)}`);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+            await this.redisService.del(`user:socket:${String(payload.sub)}`);
+          }
+        } catch {
+          // Token không hợp lệ hoặc đã hết hạn, bỏ qua
+        }
+      }
+
+      // Xóa refresh_token từ Redis (thêm vào blacklist)
+      if (refreshToken) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+          const payload = this.jwtService.verify(refreshToken, {
+            secret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'your-super-secret-jwt-key-here',
+          });
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          const exp = (payload.exp as number) * 1000;
+          const now = Date.now();
+          const ttl = Math.max(0, Math.floor((exp - now) / 1000));
+          
+          if (ttl > 0) {
+            await this.redisService.set(`blacklist:refresh:${refreshToken}`, 'true', ttl);
+          }
+        } catch {
+          // Token không hợp lệ hoặc đã hết hạn, bỏ qua
+        }
+      }
+
+      res.clearCookie('access_token', {
+        httpOnly: true,
+        sameSite: 'strict',
+      });
+      res.clearCookie('refresh_token', {
+        httpOnly: true,
+        sameSite: 'strict',
+      });
+      
+      return {
+        success: true,
+        message: 'Đăng xuất thành công. Token đã được xóa khỏi cookie và Redis.'
+      };
+    } catch {
+      // Vẫn xóa cookies dù có lỗi
+      res.clearCookie('access_token');
+      res.clearCookie('refresh_token');
+      
+      return {
+        success: true,
+        message: 'Đăng xuất thành công'
+      };
+    }
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
-    @Request() req,
+    @Request() req: any,
     @Response({ passthrough: true }) res: ExpressResponse
   ) {
-    const refreshToken = req.cookies?.refresh_token;
+    const refreshToken = req.cookies?.refresh_token as string;
     
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token không tồn tại');
+    }
+
+    // Kiểm tra refresh token có trong blacklist không
+    const isBlacklisted = await this.redisService.exists(`blacklist:refresh:${refreshToken}`);
+    if (isBlacklisted) {
+      throw new UnauthorizedException('Refresh token đã bị vô hiệu hóa. Vui lòng đăng nhập lại.');
     }
 
     const result = await this.authService.refreshAccessToken(refreshToken);
@@ -127,17 +208,17 @@ export class AuthController {
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
   async changePassword(
-    @Request() req,
+    @Request() req: any,
     @Body() changePasswordDto: ChangePasswordDto
   ) {
-    return this.authService.changePassword(req.user.sub, changePasswordDto);
+    return this.authService.changePassword(Number(req.user.sub), changePasswordDto);
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async getProfile(@Request() req) {
+  getProfile(@Request() req: any) {
     return {
-      user: req.user
+      user: req.user as Record<string, any>
     };
   }
 }

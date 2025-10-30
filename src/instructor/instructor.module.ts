@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { InstructorService } from './instructor.service';
+import { InstructorController } from './instructor.controller';
 import { Instructor } from './entities/instructor.entity';
 import { Users } from '../user/user.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Thesis } from '../thesis/entities/thesis.entity';
 
 @Module({
   imports: [
@@ -11,8 +13,10 @@ import { Department } from '../organization/entities/department.entity';
       Instructor,
       Users,
       Department,
+      Thesis,
     ]),
   ],
+  controllers: [InstructorController],
   providers: [InstructorService],
   exports: [InstructorService],
 })

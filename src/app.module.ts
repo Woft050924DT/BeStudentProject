@@ -2,9 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
 import { Users } from './user/user.entity';
-import { UserRoleEntity } from './user/entities/user-role.entity';
-import { UserRoleAssignment } from './user/entities/usser-role-assignment.entity';
-import { UserRole } from './user/entities/user-role-definition.entity';
 import { Student } from './student/entities/student.entity';
 import { Faculty } from './organization/entities/faculty.entity';
 import { Department } from './organization/entities/department.entity';
@@ -13,6 +10,7 @@ import { Class } from './organization/entities/class.entity';
 import { Instructor } from './instructor/entities/instructor.entity';
 import { ThesisType } from './thesis/entities/thesis-type.entity';
 import { ThesisRound } from './thesis/entities/thesis-round.entity';
+import { InstructorAssignment } from './thesis/entities/instructor-assignment.entity';
 import { ProposedTopic } from './thesis/entities/proposed-topic.entity';
 import { TopicRegistration } from './thesis/entities/topic-registration.entity';
 import { Thesis } from './thesis/entities/thesis.entity';
@@ -52,6 +50,7 @@ import { ThesisModule } from './thesis/thesis.module';
         Instructor,
         ThesisType,
         ThesisRound,
+        InstructorAssignment,
         ProposedTopic,
         TopicRegistration,
         Thesis,

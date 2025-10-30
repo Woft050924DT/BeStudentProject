@@ -7,6 +7,7 @@ import { SocketModule } from '../socket/socket.module';
 // Entities
 import { ThesisType } from './entities/thesis-type.entity';
 import { ThesisRound } from './entities/thesis-round.entity';
+import { InstructorAssignment } from './entities/instructor-assignment.entity';
 import { ProposedTopic } from './entities/proposed-topic.entity';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { Thesis } from './entities/thesis.entity';
@@ -26,6 +27,7 @@ import { Major } from '../organization/entities/major.entity';
       // Thesis entities
       ThesisType,
       ThesisRound,
+      InstructorAssignment,
       ProposedTopic,
       TopicRegistration,
       Thesis,

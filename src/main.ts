@@ -9,7 +9,6 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // Cấu hình cookie parser
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
   app.use(cookieParser());
 
   // Cấu hình CORS
