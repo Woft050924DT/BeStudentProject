@@ -12,6 +12,10 @@ import { Student } from '../../student/entities/student.entity';
 import { Instructor } from '../../instructor/entities/instructor.entity';
 import { ThesisRound } from './thesis-round.entity';
 import { TopicRegistration } from './topic-registration.entity';
+import { WeeklyReport } from './weekly-report.entity';
+import { SupervisionComment } from './supervision-comment.entity';
+import { ReviewAssignment } from './review-assignment.entity';
+import { DefenseAssignment } from './defense-assignment.entity';
 
 @Entity('theses')
 export class Thesis {
@@ -113,4 +117,16 @@ export class Thesis {
   @ManyToOne(() => TopicRegistration, (topicRegistration) => topicRegistration.theses)
   @JoinColumn({ name: 'topic_registration_id' })
   topicRegistration: TopicRegistration;
+
+  @OneToMany(() => WeeklyReport, (weeklyReport) => weeklyReport.thesis)
+  weeklyReports: WeeklyReport[];
+
+  @OneToMany(() => SupervisionComment, (supervisionComment) => supervisionComment.thesis)
+  supervisionComments: SupervisionComment[];
+
+  @OneToMany(() => ReviewAssignment, (reviewAssignment) => reviewAssignment.thesis)
+  reviewAssignments: ReviewAssignment[];
+
+  @OneToMany(() => DefenseAssignment, (defenseAssignment) => defenseAssignment.thesis)
+  defenseAssignments: DefenseAssignment[];
 }

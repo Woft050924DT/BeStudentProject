@@ -12,6 +12,16 @@ import { ProposedTopic } from './entities/proposed-topic.entity';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { Thesis } from './entities/thesis.entity';
 import { ThesisRoundClass } from './entities/thesis-round-class.entity';
+import { GuidanceProcess } from './entities/guidance-process.entity';
+import { WeeklyReport } from './entities/weekly-report.entity';
+import { SupervisionComment } from './entities/supervision-comment.entity';
+import { ReviewAssignment } from './entities/review-assignment.entity';
+import { ReviewResult } from './entities/review-result.entity';
+import { DefenseCouncil } from './entities/defense-council.entity';
+import { CouncilMember } from './entities/council-member.entity';
+import { DefenseAssignment } from './entities/defense-assignment.entity';
+import { DefenseResult } from './entities/defense-result.entity';
+import { StatusHistory } from './entities/status-history.entity';
 
 // Related entities
 import { Student } from '../student/entities/student.entity';
@@ -32,6 +42,16 @@ import { Major } from '../organization/entities/major.entity';
       TopicRegistration,
       Thesis,
       ThesisRoundClass,
+      GuidanceProcess,
+      WeeklyReport,
+      SupervisionComment,
+      ReviewAssignment,
+      ReviewResult,
+      DefenseCouncil,
+      CouncilMember,
+      DefenseAssignment,
+      DefenseResult,
+      StatusHistory,
       // Related entities
       Student,
       Instructor,

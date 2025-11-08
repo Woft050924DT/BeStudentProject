@@ -16,6 +16,8 @@ import { TopicRegistration } from './topic-registration.entity';
 import { ThesisRoundClass } from './thesis-round-class.entity';
 import { InstructorAssignment } from './instructor-assignment.entity';
 import { Thesis } from './thesis.entity';
+import { GuidanceProcess } from './guidance-process.entity';
+import { DefenseCouncil } from './defense-council.entity';
 
 @Entity('thesis_rounds')
 export class ThesisRound {
@@ -114,4 +116,10 @@ export class ThesisRound {
 
   @OneToMany(() => Thesis, (thesis) => thesis.thesisRound)
   theses: Thesis[];
+
+  @OneToMany(() => GuidanceProcess, (guidanceProcess) => guidanceProcess.thesisRound)
+  guidanceProcesses: GuidanceProcess[];
+
+  @OneToMany(() => DefenseCouncil, (defenseCouncil) => defenseCouncil.thesisRound)
+  defenseCouncils: DefenseCouncil[];
 }

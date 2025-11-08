@@ -19,6 +19,7 @@ import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsD
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('thesis')
 @UseGuards(JwtAuthGuard)
@@ -31,8 +32,11 @@ export class ThesisController {
   @Post('register-topic')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async registerTopic(@Request() req, @Body() registerTopicDto: RegisterTopicDto) {
+  async registerTopic(@Request() req: AuthenticatedRequest, @Body() registerTopicDto: RegisterTopicDto) {
     const studentId = req.user.studentId;
+    if (!studentId) {
+      throw new Error('Student ID not found');
+    }
     return this.thesisService.registerTopic(studentId, registerTopicDto);
   }
 
@@ -54,8 +58,11 @@ export class ThesisController {
   @Get('my-registrations')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async getStudentTopicRegistrations(@Request() req, @Query() query: GetMyRegistrationsDto) {
+  async getStudentTopicRegistrations(@Request() req: AuthenticatedRequest, @Query() query: GetMyRegistrationsDto) {
     const studentId = req.user.studentId;
+    if (!studentId) {
+      throw new Error('Student ID not found');
+    }
     return this.thesisService.getStudentTopicRegistrations(studentId, query);
   }
 
@@ -63,8 +70,11 @@ export class ThesisController {
   @Get('students')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async getStudentRegistrationsAlias(@Request() req, @Query() query: GetMyRegistrationsDto) {
+  async getStudentRegistrationsAlias(@Request() req: AuthenticatedRequest, @Query() query: GetMyRegistrationsDto) {
     const studentId = req.user.studentId;
+    if (!studentId) {
+      throw new Error('Student ID not found');
+    }
     return this.thesisService.getStudentTopicRegistrations(studentId, query);
   }
 
@@ -85,8 +95,11 @@ export class ThesisController {
   @Get('student-registrations')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async getStudentRegistrations(@Request() req, @Query() query: GetStudentRegistrationsDto) {
+  async getStudentRegistrations(@Request() req: AuthenticatedRequest, @Query() query: GetStudentRegistrationsDto) {
     const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new Error('Instructor ID not found');
+    }
     return this.thesisService.getStudentRegistrations(instructorId, query);
   }
 
@@ -94,8 +107,11 @@ export class ThesisController {
   @Put('approve-registration')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async approveTopicRegistration(@Request() req, @Body() approveDto: ApproveTopicRegistrationDto) {
+  async approveTopicRegistration(@Request() req: AuthenticatedRequest, @Body() approveDto: ApproveTopicRegistrationDto) {
     const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new Error('Instructor ID not found');
+    }
     return this.thesisService.approveTopicRegistration(instructorId, approveDto);
   }
 
@@ -103,8 +119,11 @@ export class ThesisController {
   @Post('proposed-topics')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async createProposedTopic(@Request() req, @Body() createDto: CreateProposedTopicDto) {
+  async createProposedTopic(@Request() req: AuthenticatedRequest, @Body() createDto: CreateProposedTopicDto) {
     const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new Error('Instructor ID not found');
+    }
     return this.thesisService.createProposedTopic(instructorId, createDto);
   }
 
@@ -112,13 +131,18 @@ export class ThesisController {
   @Put('proposed-topics/:id')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async updateProposedTopic(
-    @Request() req, 
+  updateProposedTopic(
+    @Request() req: AuthenticatedRequest, 
     @Param('id', ParseIntPipe) id: number, 
     @Body() updateDto: UpdateProposedTopicDto
   ) {
     const instructorId = req.user.instructorId;
-    // TODO: Implement update proposed topic
+    if (!instructorId) {
+      throw new Error('Instructor ID not found');
+    }
+    // TODO: Implement update proposed topic - will use id and updateDto
+    void id;
+    void updateDto;
     return {
       success: true,
       message: 'Cập nhật đề tài đề xuất thành công'
@@ -151,7 +175,7 @@ export class ThesisController {
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async addInstructorToRound(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Body() addDto: AddInstructorToRoundDto
   ) {
@@ -165,7 +189,7 @@ export class ThesisController {
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async addMultipleInstructorsToRound(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Body() addDto: AddMultipleInstructorsDto
   ) {
@@ -196,7 +220,7 @@ export class ThesisController {
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async updateInstructorInRound(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Param('instructorId', ParseIntPipe) instructorId: number,
     @Body() updateDto: UpdateInstructorInRoundDto
@@ -211,7 +235,7 @@ export class ThesisController {
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async removeInstructorFromRound(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Param('instructorId', ParseIntPipe) instructorId: number
   ) {
@@ -224,7 +248,7 @@ export class ThesisController {
   @Get('statistics')
   @Roles(UserRole.ADMIN)
   @UseGuards(RolesGuard)
-  async getStatistics(@Query() query: any) {
+  getStatistics() {
     // TODO: Implement statistics
     return {
       success: true,

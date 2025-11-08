@@ -15,6 +15,16 @@ import { ProposedTopic } from './thesis/entities/proposed-topic.entity';
 import { TopicRegistration } from './thesis/entities/topic-registration.entity';
 import { Thesis } from './thesis/entities/thesis.entity';
 import { ThesisRoundClass } from './thesis/entities/thesis-round-class.entity';
+import { GuidanceProcess } from './thesis/entities/guidance-process.entity';
+import { WeeklyReport } from './thesis/entities/weekly-report.entity';
+import { SupervisionComment } from './thesis/entities/supervision-comment.entity';
+import { ReviewAssignment } from './thesis/entities/review-assignment.entity';
+import { ReviewResult } from './thesis/entities/review-result.entity';
+import { DefenseCouncil } from './thesis/entities/defense-council.entity';
+import { CouncilMember } from './thesis/entities/council-member.entity';
+import { DefenseAssignment } from './thesis/entities/defense-assignment.entity';
+import { DefenseResult } from './thesis/entities/defense-result.entity';
+import { StatusHistory } from './thesis/entities/status-history.entity';
 import { JwtModule } from './jwt/jwt.module';
 import { AuthModule } from './auth/auth.module';
 import {ConfigModule} from '@nestjs/config';
@@ -54,7 +64,17 @@ import { ThesisModule } from './thesis/thesis.module';
         ProposedTopic,
         TopicRegistration,
         Thesis,
-        ThesisRoundClass
+        ThesisRoundClass,
+        GuidanceProcess,
+        WeeklyReport,
+        SupervisionComment,
+        ReviewAssignment,
+        ReviewResult,
+        DefenseCouncil,
+        CouncilMember,
+        DefenseAssignment,
+        DefenseResult,
+        StatusHistory
       ],
       synchronize: false,
       logging: true,
