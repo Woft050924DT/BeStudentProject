@@ -8,7 +8,8 @@ import {
   Query, 
   UseGuards, 
   Request,
-  ParseIntPipe 
+  ParseIntPipe,
+  BadRequestException
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../jwt/jwt-auth.guard';
 import { RolesGuard } from '../guards/role.guard';
@@ -33,11 +34,29 @@ export class ThesisController {
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
   async registerTopic(@Request() req: AuthenticatedRequest, @Body() registerTopicDto: RegisterTopicDto) {
-    const studentId = req.user.studentId;
-    if (!studentId) {
-      throw new Error('Student ID not found');
+    try {
+      // Lấy studentId từ userId (không cần studentId trong token)
+      let studentId: number | undefined = req.user.studentId;
+      
+      // Nếu không có studentId trong token, lấy từ userId
+      if (!studentId) {
+        const userId = req.user.userId;
+        const foundStudentId = await this.thesisService.getStudentIdByUserId(userId);
+        if (foundStudentId) {
+          studentId = foundStudentId;
+        }
+      }
+      
+      if (!studentId) {
+        throw new BadRequestException('Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.');
+      }
+      
+      return await this.thesisService.registerTopic(studentId, registerTopicDto);
+    } catch (error) {
+      // Log lỗi để debug
+      console.error('Error in registerTopic:', error);
+      throw error;
     }
-    return this.thesisService.registerTopic(studentId, registerTopicDto);
   }
 
   // Lấy danh sách đề tài được đề xuất (tất cả user)

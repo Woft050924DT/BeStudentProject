@@ -37,6 +37,14 @@ export class ThesisService {
     private socketGateway: SocketGateway,
   ) {}
 
+  // Lấy studentId từ userId
+  async getStudentIdByUserId(userId: number): Promise<number | null> {
+    const student = await this.studentRepository.findOne({
+      where: { userId }
+    });
+    return student?.id || null;
+  }
+
   // Đăng ký đề tài cho sinh viên
   async registerTopic(studentId: number, registerTopicDto: RegisterTopicDto) {
     const { thesisRoundId, instructorId, proposedTopicId, selfProposedTitle, selfProposedDescription, selectionReason } = registerTopicDto;
@@ -134,20 +142,27 @@ export class ThesisService {
 
     const savedRegistration = await this.topicRegistrationRepository.save(topicRegistration);
 
-    // Gửi thông báo real-time cho giảng viên
-    await this.socketGateway.sendToUser(
-      instructor.userId.toString(),
-      'new_topic_registration',
-      {
-        registrationId: savedRegistration.id,
-        studentName: student.user.fullName,
-        studentCode: student.studentCode,
-        topicTitle: proposedTopicId ? 
-          (await this.proposedTopicRepository.findOne({ where: { id: proposedTopicId } }))?.topicTitle :
-          selfProposedTitle,
-        registrationDate: savedRegistration.registrationDate
+    // Gửi thông báo real-time cho giảng viên (nếu có userId)
+    try {
+      if (instructor.user && instructor.user.id) {
+        await this.socketGateway.sendToUser(
+          instructor.user.id.toString(),
+          'new_topic_registration',
+          {
+            registrationId: savedRegistration.id,
+            studentName: student.user?.fullName || 'N/A',
+            studentCode: student.studentCode,
+            topicTitle: proposedTopicId ? 
+              (await this.proposedTopicRepository.findOne({ where: { id: proposedTopicId } }))?.topicTitle :
+              selfProposedTitle,
+            registrationDate: savedRegistration.registrationDate
+          }
+        );
       }
-    );
+    } catch (socketError) {
+      // Log lỗi socket nhưng không fail toàn bộ request
+      console.error('Error sending socket notification:', socketError);
+    }
 
     return {
       success: true,
