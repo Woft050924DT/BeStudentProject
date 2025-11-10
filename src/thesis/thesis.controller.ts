@@ -59,13 +59,11 @@ export class ThesisController {
     }
   }
 
-  // Lấy danh sách đề tài được đề xuất (tất cả user)
   @Get('proposed-topics')
   async getProposedTopics(@Query() query: GetProposedTopicsDto) {
     return this.thesisService.getProposedTopics(query);
   }
 
-  // Lấy danh sách đề tài có sẵn cho sinh viên (chỉ đề tài chưa được chọn)
   @Get('available-topics')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
@@ -73,7 +71,6 @@ export class ThesisController {
     return this.thesisService.getAvailableTopicsForStudent(query);
   }
 
-  // Lấy lịch sử đăng ký đề tài của sinh viên
   @Get('my-registrations')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)

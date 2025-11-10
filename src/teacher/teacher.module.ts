@@ -1,9 +1,17 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { TeacherController } from './teacher.controller';
 import { TeacherService } from './teacher.service';
+import { Instructor } from '../instructor/entities/instructor.entity';
+import { Users } from '../user/user.entity';
+import { Department } from '../organization/entities/department.entity';
 
 @Module({
+  imports: [
+    TypeOrmModule.forFeature([Instructor, Users, Department])
+  ],
   controllers: [TeacherController],
-  providers: [TeacherService]
+  providers: [TeacherService],
+  exports: [TeacherService]
 })
 export class TeacherModule {}
