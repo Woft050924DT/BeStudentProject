@@ -68,8 +68,25 @@ export class ThesisService {
       throw new NotFoundException('Đợt luận văn không tồn tại');
     }
 
-    if (thesisRound.status !== 'In Progress') {
-      throw new BadRequestException('Đợt luận văn không đang mở đăng ký');
+    // Kiểm tra status: chỉ cho phép đăng ký khi status là 'Preparing' hoặc 'In Progress'
+    if (thesisRound.status === 'Completed') {
+      throw new BadRequestException('Đợt luận văn đã kết thúc');
+    }
+
+    // Tự động chuyển status từ 'Preparing' sang 'In Progress' nếu đủ điều kiện
+    if (thesisRound.status === 'Preparing') {
+      // Kiểm tra xem có giảng viên nào trong đợt không
+      const hasInstructors = await this.instructorAssignmentRepository.count({
+        where: { thesisRoundId, status: true }
+      });
+
+      if (hasInstructors > 0) {
+        // Tự động chuyển status sang 'In Progress' khi đã có giảng viên
+        await this.thesisRoundRepository.update(thesisRoundId, { status: 'In Progress' });
+        thesisRound.status = 'In Progress';
+      } else {
+        throw new BadRequestException('Đợt luận văn chưa có giảng viên. Vui lòng chờ trưởng bộ môn thêm giảng viên vào đợt.');
+      }
     }
 
     // Kiểm tra deadline đăng ký
@@ -564,7 +581,9 @@ export class ThesisService {
 
   // Tạo đề tài đề xuất
   async createProposedTopic(instructorId: number, createDto: CreateProposedTopicDto) {
-    const { topicCode, topicTitle, thesisRoundId, ...otherData } = createDto;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { topicCode, topicTitle, thesisRoundId, maxStudents, notes, ...otherData } = createDto;
+    // maxStudents và notes được frontend gửi nhưng không được lưu vào entity (entity không có trường này)
 
     // Kiểm tra đợt luận văn tồn tại
     const thesisRound = await this.thesisRoundRepository.findOne({
@@ -649,8 +668,8 @@ export class ThesisService {
       );
     }
 
-    // Sắp xếp
-    const validSortFields: string[] = ['createdAt', 'roundName', 'startDate', 'endDate'];
+    // Sắp xếp - mặc định sắp xếp theo createdAt DESC (mới nhất trước), sau đó theo id DESC để đảm bảo thứ tự
+    const validSortFields: string[] = ['createdAt', 'roundName', 'startDate', 'endDate', 'id'];
     let sortField = 'createdAt';
     if (sortBy && typeof sortBy === 'string' && validSortFields.includes(sortBy)) {
       sortField = sortBy;
@@ -661,7 +680,13 @@ export class ThesisService {
       finalSortOrder = 'ASC';
     }
     
+    // Sắp xếp chính theo field được chọn
     queryBuilder.orderBy(`thesisRound.${sortField}`, finalSortOrder);
+    
+    // Nếu không phải sắp xếp theo id, thêm sắp xếp phụ theo id để đảm bảo đợt mới nhất luôn ở đầu
+    if (sortField !== 'id') {
+      queryBuilder.addOrderBy('thesisRound.id', 'DESC');
+    }
 
     // Phân trang
     const finalPage: number = page || 1;
@@ -872,6 +897,11 @@ export class ThesisService {
     });
 
     await this.instructorAssignmentRepository.save(instructorAssignment);
+
+    // Tự động chuyển status từ 'Preparing' sang 'In Progress' khi thêm giảng viên đầu tiên
+    if (thesisRound.status === 'Preparing') {
+      await this.thesisRoundRepository.update(roundId, { status: 'In Progress' });
+    }
 
     return {
       success: true,

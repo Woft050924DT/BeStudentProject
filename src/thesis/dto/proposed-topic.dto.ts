@@ -14,10 +14,6 @@ export class CreateProposedTopicDto {
 
   @IsNotEmpty()
   @IsNumber()
-  instructorId: number;
-
-  @IsNotEmpty()
-  @IsNumber()
   thesisRoundId: number;
 
   @IsOptional()
@@ -39,6 +35,15 @@ export class CreateProposedTopicDto {
   @IsOptional()
   @IsString()
   topicReferences?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxStudents?: number; // Trường này được frontend gửi nhưng không được lưu vào entity
+
+  @IsOptional()
+  @IsString()
+  notes?: string; // Trường này được frontend gửi nhưng không được lưu vào entity
 }
 
 export class UpdateProposedTopicDto {

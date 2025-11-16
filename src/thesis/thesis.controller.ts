@@ -138,7 +138,7 @@ export class ThesisController {
   async createProposedTopic(@Request() req: AuthenticatedRequest, @Body() createDto: CreateProposedTopicDto) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
-      throw new Error('Instructor ID not found');
+      throw new BadRequestException('Không tìm thấy thông tin giảng viên. Vui lòng đăng nhập lại.');
     }
     return this.thesisService.createProposedTopic(instructorId, createDto);
   }
