@@ -3,8 +3,10 @@ import {
   Post,
   Get,
   Put,
+  Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
   ParseIntPipe,
@@ -20,7 +22,6 @@ import { OrganizationService } from '../organization/organization.service';
 import { InstructorService } from '../instructor/instructor.service';
 import { CreateFacultyDto } from './dto/create-faculty.dto';
 import { CreateDepartmentDto } from './dto/create-department.dto';
-import { CreateInstructorDto } from './dto/create-instructor.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 
 @Controller('admin')
@@ -358,92 +359,6 @@ export class AdminController {
     };
   }
 
-  // ================================
-  // QUẢN LÝ GIẢNG VIÊN
-  // ================================
-
-  // Tạo thông tin giảng viên
-  @Post('instructors')
-  @Roles(UserRole.ADMIN)
-  async createInstructor(@Body() createInstructorDto: CreateInstructorDto) {
-    const instructor = await this.instructorService.createInstructor(createInstructorDto);
-    return {
-      message: 'Tạo thông tin giảng viên thành công',
-      instructor: {
-        id: instructor.id,
-        userId: instructor.userId,
-        instructorCode: instructor.instructorCode,
-        departmentId: instructor.departmentId,
-        degree: instructor.degree,
-        academicTitle: instructor.academicTitle,
-        specialization: instructor.specialization,
-        yearsOfExperience: instructor.yearsOfExperience,
-        status: instructor.status,
-      },
-    };
-  }
-
-  // Lấy danh sách tất cả giảng viên
-  @Get('instructors')
-  @Roles(UserRole.ADMIN)
-  async getAllInstructors() {
-    const instructors = await this.instructorService.getAllInstructors();
-    return {
-      message: 'Lấy danh sách giảng viên thành công',
-      instructors: instructors.map(instructor => ({
-        id: instructor.id,
-        userId: instructor.userId,
-        instructorCode: instructor.instructorCode,
-        user: {
-          id: instructor.user.id,
-          username: instructor.user.username,
-          email: instructor.user.email,
-          fullName: instructor.user.fullName,
-          phone: instructor.user.phone,
-        },
-        department: instructor.department ? {
-          id: instructor.department.id,
-          departmentCode: instructor.department.departmentCode,
-          departmentName: instructor.department.departmentName,
-          faculty: instructor.department.faculty ? {
-            id: instructor.department.faculty.id,
-            facultyCode: instructor.department.faculty.facultyCode,
-            facultyName: instructor.department.faculty.facultyName,
-          } : null,
-        } : null,
-        degree: instructor.degree,
-        academicTitle: instructor.academicTitle,
-        specialization: instructor.specialization,
-        yearsOfExperience: instructor.yearsOfExperience,
-        status: instructor.status,
-        createdAt: instructor.createdAt,
-      })),
-    };
-  }
-
-  // Lấy giảng viên theo bộ môn
-  @Get('departments/:departmentId/instructors')
-  @Roles(UserRole.ADMIN)
-  async getInstructorsByDepartment(@Param('departmentId', ParseIntPipe) departmentId: number) {
-    const instructors = await this.instructorService.getInstructorsByDepartment(departmentId);
-    return {
-      message: 'Lấy danh sách giảng viên theo bộ môn thành công',
-      instructors: instructors.map(instructor => ({
-        id: instructor.id,
-        instructorCode: instructor.instructorCode,
-        user: {
-          id: instructor.user.id,
-          fullName: instructor.user.fullName,
-          email: instructor.user.email,
-        },
-        degree: instructor.degree,
-        academicTitle: instructor.academicTitle,
-        specialization: instructor.specialization,
-        yearsOfExperience: instructor.yearsOfExperience,
-        status: instructor.status,
-      })),
-    };
-  }
 
   // ================================
   // QUẢN LÝ SINH VIÊN

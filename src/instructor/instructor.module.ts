@@ -5,6 +5,7 @@ import { InstructorController } from './instructor.controller';
 import { Instructor } from './entities/instructor.entity';
 import { Users } from '../user/user.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Faculty } from '../organization/entities/faculty.entity';
 import { Thesis } from '../thesis/entities/thesis.entity';
 
 @Module({
@@ -13,6 +14,7 @@ import { Thesis } from '../thesis/entities/thesis.entity';
       Instructor,
       Users,
       Department,
+      Faculty,
       Thesis,
     ]),
   ],

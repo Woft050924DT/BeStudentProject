@@ -34,7 +34,7 @@ GET /thesis/department/instructors
 ```
 
 ### Authentication
-- **Required**: Yes
+- **Required**: Yestri
 - **Type**: JWT Bearer Token
 - **Role**: HEAD_OF_DEPARTMENT
 

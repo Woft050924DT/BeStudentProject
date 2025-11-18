@@ -33,6 +33,7 @@ import { TeacherModule } from './teacher/teacher.module';
 import { AdminModule } from './admin/admin.module';
 import { OrganizationModule } from './organization/organization.module';
 import { InstructorModule } from './instructor/instructor.module';
+import { AcademicStaffModule } from './academic-staff/academic-staff.module';
 import { RedisModule } from './redis/redis.module';
 import { SocketModule } from './socket/socket.module';
 import { ThesisModule } from './thesis/thesis.module';
@@ -90,6 +91,7 @@ import { ThesisModule } from './thesis/thesis.module';
     AdminModule,
     OrganizationModule,
     InstructorModule,
+    AcademicStaffModule,
     ThesisModule,
   ],
 })
