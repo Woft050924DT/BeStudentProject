@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Faculty } from './entities/faculty.entity';
@@ -7,6 +7,10 @@ import { Major } from './entities/major.entity';
 import { Class } from './entities/class.entity';
 import { CreateFacultyDto } from '../admin/dto/create-faculty.dto';
 import { CreateDepartmentDto } from '../admin/dto/create-department.dto';
+import { CreateClassDto } from '../admin/dto/create-class.dto';
+import { UpdateClassDto } from '../admin/dto/update-class.dto';
+import { GetClassesDto } from '../admin/dto/get-classes.dto';
+import { Instructor } from '../instructor/entities/instructor.entity';
 
 @Injectable()
 export class OrganizationService {
@@ -19,6 +23,8 @@ export class OrganizationService {
     private readonly majorRepository: Repository<Major>,
     @InjectRepository(Class)
     private readonly classRepository: Repository<Class>,
+    @InjectRepository(Instructor)
+    private readonly instructorRepository: Repository<Instructor>,
   ) {}
 
   // Faculty methods
@@ -125,8 +131,8 @@ export class OrganizationService {
   }
 
   // Class methods
-  async createClass(classData: Partial<Class>): Promise<Class> {
-    const { classCode, majorId } = classData;
+  async createClass(createClassDto: CreateClassDto): Promise<Class> {
+    const { classCode, majorId, advisorId } = createClassDto;
     
     // Check if class code already exists
     const existingClass = await this.classRepository.findOne({
@@ -146,7 +152,178 @@ export class OrganizationService {
       throw new NotFoundException('Không tìm thấy chuyên ngành');
     }
 
-    const classEntity = this.classRepository.create(classData);
+    // Check if advisor exists (if provided)
+    if (advisorId) {
+      const advisor = await this.instructorRepository.findOne({
+        where: { id: advisorId }
+      });
+      
+      if (!advisor) {
+        throw new NotFoundException('Không tìm thấy giảng viên cố vấn');
+      }
+    }
+
+    const classEntity = this.classRepository.create(createClassDto);
     return this.classRepository.save(classEntity);
+  }
+
+  async getAllClasses(): Promise<Class[]> {
+    return this.classRepository.find({
+      relations: ['major', 'major.department', 'major.department.faculty', 'advisor', 'advisor.user'],
+      order: { classCode: 'ASC' }
+    });
+  }
+
+  async getClassById(id: number): Promise<Class> {
+    const classEntity = await this.classRepository.findOne({
+      where: { id },
+      relations: ['major', 'major.department', 'major.department.faculty', 'advisor', 'advisor.user', 'students', 'students.user']
+    });
+    
+    if (!classEntity) {
+      throw new NotFoundException('Không tìm thấy lớp học');
+    }
+    
+    return classEntity;
+  }
+
+  async updateClass(id: number, updateClassDto: UpdateClassDto): Promise<Class> {
+    const classEntity = await this.classRepository.findOne({
+      where: { id }
+    });
+    
+    if (!classEntity) {
+      throw new NotFoundException('Không tìm thấy lớp học');
+    }
+
+    // Check if major exists (if provided)
+    if (updateClassDto.majorId) {
+      const major = await this.majorRepository.findOne({
+        where: { id: updateClassDto.majorId }
+      });
+      
+      if (!major) {
+        throw new NotFoundException('Không tìm thấy chuyên ngành');
+      }
+    }
+
+    // Check if advisor exists (if provided)
+    if (updateClassDto.advisorId !== undefined) {
+      if (updateClassDto.advisorId !== null) {
+        const advisor = await this.instructorRepository.findOne({
+          where: { id: updateClassDto.advisorId }
+        });
+        
+        if (!advisor) {
+          throw new NotFoundException('Không tìm thấy giảng viên cố vấn');
+        }
+      }
+    }
+
+    Object.assign(classEntity, updateClassDto);
+    return this.classRepository.save(classEntity);
+  }
+
+  async deleteClass(id: number): Promise<void> {
+    const classEntity = await this.classRepository.findOne({
+      where: { id },
+      relations: ['students']
+    });
+    
+    if (!classEntity) {
+      throw new NotFoundException('Không tìm thấy lớp học');
+    }
+
+    // Check if class has students
+    if (classEntity.students && classEntity.students.length > 0) {
+      throw new BadRequestException('Không thể xóa lớp học đang có sinh viên');
+    }
+
+    await this.classRepository.remove(classEntity);
+  }
+
+  async getClassesWithFilters(query: GetClassesDto) {
+    const {
+      page = 1,
+      limit = 10,
+      majorId,
+      departmentId,
+      facultyId,
+      search,
+      academicYear,
+      advisorId,
+      status,
+      sortBy = 'classCode',
+      sortOrder = 'ASC'
+    } = query;
+
+    const queryBuilder = this.classRepository.createQueryBuilder('class')
+      .leftJoinAndSelect('class.major', 'major')
+      .leftJoinAndSelect('major.department', 'department')
+      .leftJoinAndSelect('department.faculty', 'faculty')
+      .leftJoinAndSelect('class.advisor', 'advisor')
+      .leftJoinAndSelect('advisor.user', 'advisorUser');
+
+    // Filters
+    if (majorId) {
+      queryBuilder.andWhere('class.majorId = :majorId', { majorId });
+    }
+
+    if (departmentId) {
+      queryBuilder.andWhere('major.departmentId = :departmentId', { departmentId });
+    }
+
+    if (facultyId) {
+      queryBuilder.andWhere('department.facultyId = :facultyId', { facultyId });
+    }
+
+    if (academicYear) {
+      queryBuilder.andWhere('class.academicYear = :academicYear', { academicYear });
+    }
+
+    if (advisorId) {
+      queryBuilder.andWhere('class.advisorId = :advisorId', { advisorId });
+    }
+
+    if (status !== undefined) {
+      queryBuilder.andWhere('class.status = :status', { status });
+    }
+
+    // Search
+    if (search) {
+      queryBuilder.andWhere(
+        '(class.classCode ILIKE :search OR class.className ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    // Sorting
+    const validSortFields = ['classCode', 'className', 'createdAt', 'studentCount'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'classCode';
+    const order = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    
+    queryBuilder.orderBy(`class.${sortField}`, order);
+
+    // Pagination
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
+  }
+
+  async getClassesByMajor(majorId: number): Promise<Class[]> {
+    return this.classRepository.find({
+      where: { majorId },
+      relations: ['major', 'advisor', 'advisor.user'],
+      order: { classCode: 'ASC' }
+    });
   }
 }

@@ -5,6 +5,7 @@ import { Faculty } from './entities/faculty.entity';
 import { Department } from './entities/department.entity';
 import { Major } from './entities/major.entity';
 import { Class } from './entities/class.entity';
+import { Instructor } from '../instructor/entities/instructor.entity';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { Class } from './entities/class.entity';
       Department,
       Major,
       Class,
+      Instructor,
     ]),
   ],
   providers: [OrganizationService],

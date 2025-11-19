@@ -3,12 +3,22 @@
 Tài liệu này mô tả các API endpoints dành cho **Actor: Giáo Vụ (ACADEMIC_STAFF)** trong việc quản lý giảng viên trong hệ thống quản lý đồ án tốt nghiệp.
 
 ## Mục lục
+
+### Quản lý Giảng viên
 1. [Tạo thông tin giảng viên](#1-tạo-thông-tin-giảng-viên)
 2. [Lấy danh sách giảng viên](#2-lấy-danh-sách-giảng-viên)
 3. [Lấy chi tiết giảng viên](#3-lấy-chi-tiết-giảng-viên)
 4. [Cập nhật thông tin giảng viên](#4-cập-nhật-thông-tin-giảng-viên)
 5. [Xóa giảng viên](#5-xóa-giảng-viên)
 6. [Lấy giảng viên theo bộ môn](#6-lấy-giảng-viên-theo-bộ-môn)
+
+### Quản lý Lớp học
+7. [Tạo lớp học mới](#7-tạo-lớp-học-mới)
+8. [Lấy danh sách lớp học](#8-lấy-danh-sách-lớp-học)
+9. [Lấy chi tiết lớp học](#9-lấy-chi-tiết-lớp-học)
+10. [Cập nhật thông tin lớp học](#10-cập-nhật-thông-tin-lớp-học)
+11. [Xóa lớp học](#11-xóa-lớp-học)
+12. [Lấy lớp học theo chuyên ngành](#12-lấy-lớp-học-theo-chuyên-ngành)
 
 ---
 
@@ -1222,16 +1232,1227 @@ function InstructorsList() {
 
 ---
 
+## 7. Tạo lớp học mới
+
+### Endpoint
+```
+POST /academic-staff/classes
+```
+
+### Mô tả
+Tạo lớp học mới trong hệ thống. Giáo vụ có thể tạo lớp học cho một chuyên ngành cụ thể.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `classCode` | string | Yes | Mã lớp học (2-20 ký tự, unique) |
+| `className` | string | Yes | Tên lớp học (1-255 ký tự) |
+| `majorId` | number | Yes | ID chuyên ngành |
+| `academicYear` | string | No | Khóa học (tối đa 10 ký tự, ví dụ: "K19", "K20") |
+| `studentCount` | number | No | Số lượng sinh viên (mặc định: 0) |
+| `advisorId` | number | No | ID giảng viên cố vấn học tập |
+| `status` | boolean | No | Trạng thái hoạt động (mặc định: true) |
+
+### Request Example
+
+```json
+{
+  "classCode": "CNTT19A",
+  "className": "Công nghệ thông tin K19 - Lớp A",
+  "majorId": 1,
+  "academicYear": "K19",
+  "advisorId": 1,
+  "status": true
+}
+```
+
+### Response Format
+
+#### Success Response (201 Created)
+
+```json
+{
+  "message": "Tạo lớp học thành công",
+  "class": {
+    "id": 1,
+    "classCode": "CNTT19A",
+    "className": "Công nghệ thông tin K19 - Lớp A",
+    "majorId": 1,
+    "academicYear": "K19",
+    "studentCount": 0,
+    "advisorId": 1,
+    "status": true
+  }
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Dữ liệu không hợp lệ
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "classCode should not be empty",
+    "majorId must be a number"
+  ]
+}
+```
+
+**404 Not Found** - Chuyên ngành hoặc giảng viên cố vấn không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy chuyên ngành"
+}
+```
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy giảng viên cố vấn"
+}
+```
+
+**409 Conflict** - Mã lớp học đã tồn tại
+```json
+{
+  "statusCode": 409,
+  "message": "Mã lớp đã tồn tại"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 8. Lấy danh sách lớp học
+
+### Endpoint
+```
+GET /academic-staff/classes
+```
+
+### Mô tả
+Lấy danh sách tất cả lớp học trong hệ thống với khả năng tìm kiếm, lọc và phân trang.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `page` | number | No | Số trang (mặc định: 1, tối thiểu: 1) |
+| `limit` | number | No | Số lượng mỗi trang (mặc định: 10, tối đa: 100) |
+| `majorId` | number | No | Lọc theo ID chuyên ngành |
+| `departmentId` | number | No | Lọc theo ID bộ môn |
+| `facultyId` | number | No | Lọc theo ID khoa |
+| `search` | string | No | Tìm kiếm theo mã lớp, tên lớp |
+| `academicYear` | string | No | Lọc theo khóa học (K19, K20...) |
+| `advisorId` | number | No | Lọc theo ID cố vấn học tập |
+| `status` | boolean | No | Lọc theo trạng thái (true/false) |
+| `sortBy` | string | No | Sắp xếp theo: `classCode`, `className`, `createdAt`, `studentCount` (mặc định: `classCode`) |
+| `sortOrder` | string | No | Thứ tự sắp xếp: `ASC` hoặc `DESC` (mặc định: `ASC`) |
+
+### Request Example
+
+```bash
+# Lấy tất cả lớp học
+GET /academic-staff/classes
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Lấy với phân trang
+GET /academic-staff/classes?page=1&limit=20
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Tìm kiếm và lọc
+GET /academic-staff/classes?search=CNTT&majorId=1&status=true&page=1&limit=10
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Lọc theo khoa và khóa học
+GET /academic-staff/classes?facultyId=1&academicYear=K19&sortBy=className&sortOrder=ASC
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+**Khi có query params (filters, pagination):**
+```json
+{
+  "message": "Lấy danh sách lớp học thành công",
+  "data": [
+    {
+      "id": 1,
+      "classCode": "CNTT19A",
+      "className": "Công nghệ thông tin K19 - Lớp A",
+      "major": {
+        "id": 1,
+        "majorCode": "CNTT",
+        "majorName": "Công nghệ thông tin",
+        "department": {
+          "id": 1,
+          "departmentCode": "CNTT",
+          "departmentName": "Công nghệ thông tin",
+          "faculty": {
+            "id": 1,
+            "facultyCode": "KHCN",
+            "facultyName": "Khoa Khoa học và Công nghệ"
+          }
+        }
+      },
+      "academicYear": "K19",
+      "studentCount": 45,
+      "advisor": {
+        "id": 1,
+        "instructorCode": "GV001",
+        "user": {
+          "id": 1,
+          "fullName": "Nguyễn Văn A",
+          "email": "nguyenvana@example.com"
+        }
+      },
+      "status": true,
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 50,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 5
+  }
+}
+```
+
+**Khi không có query params (lấy tất cả):**
+```json
+{
+  "message": "Lấy danh sách lớp học thành công",
+  "data": [
+    {
+      "id": 1,
+      "classCode": "CNTT19A",
+      "className": "Công nghệ thông tin K19 - Lớp A",
+      "major": {
+        "id": 1,
+        "majorCode": "CNTT",
+        "majorName": "Công nghệ thông tin",
+        "department": {
+          "id": 1,
+          "departmentCode": "CNTT",
+          "departmentName": "Công nghệ thông tin",
+          "faculty": {
+            "id": 1,
+            "facultyCode": "KHCN",
+            "facultyName": "Khoa Khoa học và Công nghệ"
+          }
+        }
+      },
+      "academicYear": "K19",
+      "studentCount": 45,
+      "advisor": {
+        "id": 1,
+        "instructorCode": "GV001",
+        "user": {
+          "id": 1,
+          "fullName": "Nguyễn Văn A",
+          "email": "nguyenvana@example.com"
+        }
+      },
+      "status": true,
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 50,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1
+  }
+}
+```
+
+#### Error Responses
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 9. Lấy chi tiết lớp học
+
+### Endpoint
+```
+GET /academic-staff/classes/:id
+```
+
+### Mô tả
+Lấy thông tin chi tiết của một lớp học theo ID, bao gồm danh sách sinh viên trong lớp.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của lớp học |
+
+### Request Example
+
+```bash
+GET /academic-staff/classes/1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Lấy thông tin lớp học thành công",
+  "class": {
+    "id": 1,
+    "classCode": "CNTT19A",
+    "className": "Công nghệ thông tin K19 - Lớp A",
+    "major": {
+      "id": 1,
+      "majorCode": "CNTT",
+      "majorName": "Công nghệ thông tin",
+      "department": {
+        "id": 1,
+        "departmentCode": "CNTT",
+        "departmentName": "Công nghệ thông tin",
+        "faculty": {
+          "id": 1,
+          "facultyCode": "KHCN",
+          "facultyName": "Khoa Khoa học và Công nghệ"
+        }
+      }
+    },
+    "academicYear": "K19",
+    "studentCount": 45,
+    "advisor": {
+      "id": 1,
+      "instructorCode": "GV001",
+      "user": {
+        "id": 1,
+        "fullName": "Nguyễn Văn A",
+        "email": "nguyenvana@example.com",
+        "phone": "0912345678"
+      }
+    },
+    "status": true,
+    "students": [
+      {
+        "id": 1,
+        "studentCode": "SV001",
+        "user": {
+          "id": 10,
+          "fullName": "Trần Văn B",
+          "email": "tranvanb@example.com"
+        },
+        "gpa": 3.5,
+        "academicStatus": "Active"
+      }
+    ],
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+#### Error Responses
+
+**404 Not Found** - Lớp học không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 10. Cập nhật thông tin lớp học
+
+### Endpoint
+```
+PUT /academic-staff/classes/:id
+```
+
+### Mô tả
+Cập nhật thông tin của một lớp học. Tất cả các trường đều optional, chỉ cập nhật các trường được gửi.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của lớp học cần cập nhật |
+
+### Request Body
+
+Tất cả các trường đều **optional**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `className` | string | No | Tên lớp học (1-255 ký tự) |
+| `majorId` | number | No | ID chuyên ngành mới |
+| `academicYear` | string | No | Khóa học (tối đa 10 ký tự) |
+| `studentCount` | number | No | Số lượng sinh viên |
+| `advisorId` | number | No | ID giảng viên cố vấn học tập (có thể null để xóa cố vấn) |
+| `status` | boolean | No | Trạng thái hoạt động (true/false) |
+
+### Request Example
+
+```json
+{
+  "className": "Công nghệ thông tin K19 - Lớp A (Cập nhật)",
+  "academicYear": "K19",
+  "studentCount": 50,
+  "advisorId": 2,
+  "status": true
+}
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Cập nhật thông tin lớp học thành công",
+  "class": {
+    "id": 1,
+    "classCode": "CNTT19A",
+    "className": "Công nghệ thông tin K19 - Lớp A (Cập nhật)",
+    "majorId": 1,
+    "academicYear": "K19",
+    "studentCount": 50,
+    "advisorId": 2,
+    "status": true,
+    "updatedAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Dữ liệu không hợp lệ
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "className must be a string",
+    "studentCount must be a number"
+  ]
+}
+```
+
+**404 Not Found** - Lớp học, chuyên ngành hoặc giảng viên cố vấn không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy chuyên ngành"
+}
+```
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy giảng viên cố vấn"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 11. Xóa lớp học
+
+### Endpoint
+```
+DELETE /academic-staff/classes/:id
+```
+
+### Mô tả
+Xóa lớp học khỏi hệ thống. Không thể xóa lớp học nếu đang có sinh viên.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của lớp học cần xóa |
+
+### Request Example
+
+```bash
+DELETE /academic-staff/classes/1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Xóa lớp học thành công"
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Không thể xóa do ràng buộc
+```json
+{
+  "statusCode": 400,
+  "message": "Không thể xóa lớp học đang có sinh viên"
+}
+```
+
+**404 Not Found** - Lớp học không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 12. Lấy lớp học theo chuyên ngành
+
+### Endpoint
+```
+GET /academic-staff/majors/:majorId/classes
+```
+
+### Mô tả
+Lấy danh sách tất cả lớp học thuộc một chuyên ngành cụ thể.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `majorId` | number | Yes | ID của chuyên ngành |
+
+### Request Example
+
+```bash
+GET /academic-staff/majors/1/classes
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Lấy danh sách lớp học theo chuyên ngành thành công",
+  "classes": [
+    {
+      "id": 1,
+      "classCode": "CNTT19A",
+      "className": "Công nghệ thông tin K19 - Lớp A",
+      "academicYear": "K19",
+      "studentCount": 45,
+      "advisor": {
+        "id": 1,
+        "instructorCode": "GV001",
+        "user": {
+          "id": 1,
+          "fullName": "Nguyễn Văn A",
+          "email": "nguyenvana@example.com"
+        }
+      },
+      "status": true
+    },
+    {
+      "id": 2,
+      "classCode": "CNTT19B",
+      "className": "Công nghệ thông tin K19 - Lớp B",
+      "academicYear": "K19",
+      "studentCount": 42,
+      "advisor": {
+        "id": 2,
+        "instructorCode": "GV002",
+        "user": {
+          "id": 2,
+          "fullName": "Trần Thị B",
+          "email": "tranthib@example.com"
+        }
+      },
+      "status": true
+    }
+  ]
+}
+```
+
+#### Error Responses
+
+**404 Not Found** - Chuyên ngành không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy chuyên ngành"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## Frontend Integration - Quản Lý Lớp Học
+
+### TypeScript Interfaces
+
+```typescript
+// Request Interfaces
+interface CreateClassRequest {
+  classCode: string;
+  className: string;
+  majorId: number;
+  academicYear?: string;
+  studentCount?: number;
+  advisorId?: number;
+  status?: boolean;
+}
+
+interface UpdateClassRequest {
+  className?: string;
+  majorId?: number;
+  academicYear?: string;
+  studentCount?: number;
+  advisorId?: number | null;
+  status?: boolean;
+}
+
+interface GetClassesQuery {
+  page?: number;
+  limit?: number;
+  majorId?: number;
+  departmentId?: number;
+  facultyId?: number;
+  search?: string;
+  academicYear?: string;
+  advisorId?: number;
+  status?: boolean;
+  sortBy?: 'classCode' | 'className' | 'createdAt' | 'studentCount';
+  sortOrder?: 'ASC' | 'DESC';
+}
+
+// Response Interfaces
+interface Class {
+  id: number;
+  classCode: string;
+  className: string;
+  major: {
+    id: number;
+    majorCode: string;
+    majorName: string;
+    department: {
+      id: number;
+      departmentCode: string;
+      departmentName: string;
+      faculty?: {
+        id: number;
+        facultyCode: string;
+        facultyName: string;
+      };
+    };
+  };
+  academicYear?: string;
+  studentCount: number;
+  advisor?: {
+    id: number;
+    instructorCode: string;
+    user: {
+      id: number;
+      fullName: string;
+      email: string;
+      phone?: string;
+    };
+  };
+  status: boolean;
+  students?: Array<{
+    id: number;
+    studentCode: string;
+    user: {
+      id: number;
+      fullName: string;
+      email: string;
+    };
+    gpa?: number;
+    academicStatus: string;
+  }>;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+interface GetClassesResponse {
+  message: string;
+  data: Class[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+interface ClassDetailResponse {
+  message: string;
+  class: Class;
+}
+
+interface CreateClassResponse {
+  message: string;
+  class: {
+    id: number;
+    classCode: string;
+    className: string;
+    majorId: number;
+    academicYear?: string;
+    studentCount: number;
+    advisorId?: number;
+    status: boolean;
+  };
+}
+
+interface UpdateClassResponse {
+  message: string;
+  class: {
+    id: number;
+    classCode: string;
+    className: string;
+    majorId: number;
+    academicYear?: string;
+    studentCount: number;
+    advisorId?: number;
+    status: boolean;
+    updatedAt: string;
+  };
+}
+
+interface DeleteClassResponse {
+  message: string;
+}
+```
+
+### API Call Functions
+
+```typescript
+// 1. Tạo lớp học
+async function createClass(
+  data: CreateClassRequest
+): Promise<CreateClassResponse> {
+  const response = await fetch('/academic-staff/classes', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to create class');
+  }
+
+  return response.json();
+}
+
+// 2. Lấy danh sách lớp học
+async function getClasses(
+  query?: GetClassesQuery
+): Promise<GetClassesResponse> {
+  const queryString = query ? `?${buildQueryString(query)}` : '';
+  const response = await fetch(`/academic-staff/classes${queryString}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch classes');
+  }
+
+  return response.json();
+}
+
+// 3. Lấy chi tiết lớp học
+async function getClassById(
+  id: number
+): Promise<ClassDetailResponse> {
+  const response = await fetch(`/academic-staff/classes/${id}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch class');
+  }
+
+  return response.json();
+}
+
+// 4. Cập nhật lớp học
+async function updateClass(
+  id: number,
+  data: UpdateClassRequest
+): Promise<UpdateClassResponse> {
+  const response = await fetch(`/academic-staff/classes/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to update class');
+  }
+
+  return response.json();
+}
+
+// 5. Xóa lớp học
+async function deleteClass(
+  id: number
+): Promise<DeleteClassResponse> {
+  const response = await fetch(`/academic-staff/classes/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to delete class');
+  }
+
+  return response.json();
+}
+
+// 6. Lấy lớp học theo chuyên ngành
+async function getClassesByMajor(
+  majorId: number
+): Promise<{ message: string; classes: Class[] }> {
+  const response = await fetch(
+    `/academic-staff/majors/${majorId}/classes`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${getToken()}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch classes');
+  }
+
+  return response.json();
+}
+```
+
+### Usage Examples
+
+```typescript
+// Ví dụ 1: Tạo lớp học mới
+try {
+  const result = await createClass({
+    classCode: 'CNTT19A',
+    className: 'Công nghệ thông tin K19 - Lớp A',
+    majorId: 1,
+    academicYear: 'K19',
+    advisorId: 1
+  });
+  
+  console.log('Success:', result.message);
+  console.log('Created class ID:', result.class.id);
+  showNotification(result.message, 'success');
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+
+// Ví dụ 2: Lấy danh sách với filters và pagination
+try {
+  const result = await getClasses({
+    page: 1,
+    limit: 20,
+    majorId: 1,
+    search: 'CNTT',
+    status: true,
+    sortBy: 'className',
+    sortOrder: 'ASC'
+  });
+  
+  console.log('Total:', result.pagination.total);
+  console.log('Classes:', result.data);
+  
+  // Hiển thị danh sách
+  displayClassesList(result.data);
+  displayPagination(result.pagination);
+} catch (error) {
+  console.error('Error:', error);
+  showNotification('Không thể tải danh sách lớp học', 'error');
+}
+
+// Ví dụ 3: Cập nhật lớp học
+try {
+  const result = await updateClass(1, {
+    className: 'Công nghệ thông tin K19 - Lớp A (Cập nhật)',
+    studentCount: 50,
+    advisorId: 2,
+    status: true
+  });
+  
+  console.log('Success:', result.message);
+  showNotification(result.message, 'success');
+  
+  // Refresh danh sách
+  await refreshClassesList();
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+
+// Ví dụ 4: Xóa lớp học
+try {
+  const confirmed = await confirmDialog(
+    'Bạn có chắc chắn muốn xóa lớp học này?'
+  );
+  
+  if (confirmed) {
+    const result = await deleteClass(1);
+    console.log('Success:', result.message);
+    showNotification(result.message, 'success');
+    
+    // Refresh danh sách
+    await refreshClassesList();
+  }
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+```
+
+### React Hook Example
+
+```typescript
+import { useState, useEffect } from 'react';
+
+interface UseClassesOptions {
+  page?: number;
+  limit?: number;
+  majorId?: number;
+  departmentId?: number;
+  facultyId?: number;
+  search?: string;
+  academicYear?: string;
+  status?: boolean;
+}
+
+export function useClasses(options: UseClassesOptions = {}) {
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchClasses = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const result = await getClasses(options);
+      setClasses(result.data);
+      setPagination(result.pagination);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchClasses();
+  }, [JSON.stringify(options)]);
+
+  return {
+    classes,
+    pagination,
+    loading,
+    error,
+    refetch: fetchClasses
+  };
+}
+
+// Usage trong component
+function ClassesList() {
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 10,
+    search: '',
+    majorId: undefined as number | undefined
+  });
+
+  const { classes, pagination, loading, error, refetch } = useClasses(filters);
+
+  if (loading) return <div>Đang tải...</div>;
+  if (error) return <div>Lỗi: {error}</div>;
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="Tìm kiếm..."
+        value={filters.search}
+        onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
+      />
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Mã lớp</th>
+            <th>Tên lớp</th>
+            <th>Chuyên ngành</th>
+            <th>Khóa học</th>
+            <th>Số SV</th>
+            <th>Cố vấn</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          {classes.map((classItem) => (
+            <tr key={classItem.id}>
+              <td>{classItem.classCode}</td>
+              <td>{classItem.className}</td>
+              <td>{classItem.major.majorName}</td>
+              <td>{classItem.academicYear || '-'}</td>
+              <td>{classItem.studentCount}</td>
+              <td>{classItem.advisor?.user.fullName || '-'}</td>
+              <td>
+                <button onClick={() => handleEdit(classItem.id)}>Sửa</button>
+                <button onClick={() => handleDelete(classItem.id)}>Xóa</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      <Pagination
+        current={pagination.page}
+        total={pagination.totalPages}
+        onChange={(page) => setFilters({ ...filters, page })}
+      />
+    </div>
+  );
+}
+```
+
+---
+
 ## Tổng kết
 
 ### Các API endpoints cho Giáo Vụ:
 
+#### Quản lý Giảng viên:
 1. **POST** `/academic-staff/instructors` - Tạo thông tin giảng viên
 2. **GET** `/academic-staff/instructors` - Lấy danh sách giảng viên (có filters, search, pagination)
 3. **GET** `/academic-staff/instructors/:id` - Lấy chi tiết giảng viên
 4. **PUT** `/academic-staff/instructors/:id` - Cập nhật thông tin giảng viên
 5. **DELETE** `/academic-staff/instructors/:id` - Xóa giảng viên
 6. **GET** `/academic-staff/departments/:departmentId/instructors` - Lấy giảng viên theo bộ môn
+
+#### Quản lý Lớp học:
+7. **POST** `/academic-staff/classes` - Tạo lớp học mới
+8. **GET** `/academic-staff/classes` - Lấy danh sách lớp học (có filters, search, pagination)
+9. **GET** `/academic-staff/classes/:id` - Lấy chi tiết lớp học
+10. **PUT** `/academic-staff/classes/:id` - Cập nhật thông tin lớp học
+11. **DELETE** `/academic-staff/classes/:id` - Xóa lớp học
+12. **GET** `/academic-staff/majors/:majorId/classes` - Lấy lớp học theo chuyên ngành
 
 ### Lưu ý chung:
 
@@ -1240,6 +2461,7 @@ function InstructorsList() {
 - Tất cả các API đều trả về format chuẩn với `message`
 - Các lỗi được trả về với HTTP status code phù hợp và message rõ ràng
 - Khi xóa giảng viên, hệ thống sẽ kiểm tra ràng buộc trước khi cho phép xóa
+- Khi xóa lớp học, hệ thống sẽ kiểm tra ràng buộc (không cho xóa lớp có sinh viên)
 
 ### Error Handling
 
@@ -1266,4 +2488,6 @@ Tất cả các API đều có thể trả về các lỗi sau:
 ---
 
 **Tài liệu này được cập nhật lần cuối:** 2024-01-20
+
+**Phiên bản:** 2.0 (Đã thêm quản lý lớp học)
 
