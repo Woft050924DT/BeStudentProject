@@ -1,6 +1,12 @@
-import { IsNotEmpty, IsOptional, IsString, IsNumber, IsBoolean, MaxLength } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsNumber,
+  IsBoolean,
+  MaxLength,
+} from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-
 export class CreateProposedTopicDto {
   @IsNotEmpty()
   @IsString()
@@ -47,6 +53,12 @@ export class CreateProposedTopicDto {
 }
 
 export class UpdateProposedTopicDto {
+  @IsNumber()
+  topicId: number; // ID đề tài, bắt buộc
+
+  @IsNumber()
+  instructorId: number; // ID giảng viên, bắt buộc
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -75,6 +87,12 @@ export class UpdateProposedTopicDto {
   @IsOptional()
   @IsBoolean()
   status?: boolean;
+}
+
+export class SearchProposedTopicDto {
+  @IsOptional()
+  @IsString()
+  query?: string; // từ khóa tìm kiếm
 }
 
 export class GetProposedTopicsDto {

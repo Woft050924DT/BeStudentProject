@@ -1,10 +1,35 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
-import { CreateProposedTopicDto, GetProposedTopicsDto } from './dto/proposed-topic.dto';
-import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
-import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import { Repository, ILike } from 'typeorm';
+import {
+  RegisterTopicDto,
+  ApproveTopicRegistrationDto,
+  GetStudentRegistrationsDto,
+  GetMyRegistrationsDto,
+} from './dto/register-topic.dto';
+import {
+  CreateProposedTopicDto,
+  GetProposedTopicsDto,
+  UpdateProposedTopicDto,
+  SearchProposedTopicDto,
+} from './dto/proposed-topic.dto';
+import {
+  CreateThesisRoundDto,
+  UpdateThesisRoundDto,
+  GetThesisRoundsDto,
+} from './dto/thesis-round.dto';
+import {
+  AddInstructorToRoundDto,
+  AddMultipleInstructorsDto,
+  UpdateInstructorInRoundDto,
+  GetInstructorsInRoundDto,
+} from './dto/thesis-round-instructor.dto';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { ProposedTopic } from './entities/proposed-topic.entity';
 import { ThesisRound } from './entities/thesis-round.entity';
@@ -40,19 +65,26 @@ export class ThesisService {
   // Lấy studentId từ userId
   async getStudentIdByUserId(userId: number): Promise<number | null> {
     const student = await this.studentRepository.findOne({
-      where: { userId }
+      where: { userId },
     });
     return student?.id || null;
   }
 
   // Đăng ký đề tài cho sinh viên
   async registerTopic(studentId: number, registerTopicDto: RegisterTopicDto) {
-    const { thesisRoundId, instructorId, proposedTopicId, selfProposedTitle, selfProposedDescription, selectionReason } = registerTopicDto;
+    const {
+      thesisRoundId,
+      instructorId,
+      proposedTopicId,
+      selfProposedTitle,
+      selfProposedDescription,
+      selectionReason,
+    } = registerTopicDto;
 
     // Kiểm tra sinh viên tồn tại
     const student = await this.studentRepository.findOne({
       where: { id: studentId },
-      relations: ['user', 'classEntity']
+      relations: ['user', 'classEntity'],
     });
 
     if (!student) {
@@ -61,7 +93,7 @@ export class ThesisService {
 
     // Kiểm tra đợt luận văn tồn tại và đang mở đăng ký
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: thesisRoundId }
+      where: { id: thesisRoundId },
     });
 
     if (!thesisRound) {
@@ -77,56 +109,65 @@ export class ThesisService {
     if (thesisRound.status === 'Preparing') {
       // Kiểm tra xem có giảng viên nào trong đợt không
       const hasInstructors = await this.instructorAssignmentRepository.count({
-        where: { thesisRoundId, status: true }
+        where: { thesisRoundId, status: true },
       });
 
       if (hasInstructors > 0) {
         // Tự động chuyển status sang 'In Progress' khi đã có giảng viên
-        await this.thesisRoundRepository.update(thesisRoundId, { status: 'In Progress' });
+        await this.thesisRoundRepository.update(thesisRoundId, {
+          status: 'In Progress',
+        });
         thesisRound.status = 'In Progress';
       } else {
-        throw new BadRequestException('Đợt luận văn chưa có giảng viên. Vui lòng chờ trưởng bộ môn thêm giảng viên vào đợt.');
+        throw new BadRequestException(
+          'Đợt luận văn chưa có giảng viên. Vui lòng chờ trưởng bộ môn thêm giảng viên vào đợt.',
+        );
       }
     }
 
     // Kiểm tra deadline đăng ký
-    if (thesisRound.registrationDeadline && new Date() > new Date(thesisRound.registrationDeadline)) {
+    if (
+      thesisRound.registrationDeadline &&
+      new Date() > new Date(thesisRound.registrationDeadline)
+    ) {
       throw new BadRequestException('Đã hết hạn đăng ký đề tài');
     }
 
     // Kiểm tra giảng viên tồn tại
     const instructor = await this.instructorRepository.findOne({
       where: { id: instructorId },
-      relations: ['user']
+      relations: ['user'],
     });
 
     if (!instructor) {
       throw new NotFoundException('Giảng viên không tồn tại');
     }
 
-    const existingRegistration = await this.topicRegistrationRepository.findOne({
-    where: {
-      studentId,
-      thesisRoundId
-    },
-    relations: ['student', 'student.user'] 
-  });
+    const existingRegistration = await this.topicRegistrationRepository.findOne(
+      {
+        where: {
+          studentId,
+          thesisRoundId,
+        },
+        relations: ['student', 'student.user'],
+      },
+    );
 
-  if (existingRegistration) {
-    console.log('Existing registration found:', {
-      registrationId: existingRegistration.id,
-      studentId: existingRegistration.studentId,
-      userId: existingRegistration.student?.user?.id,
-      thesisRoundId: existingRegistration.thesisRoundId
-    });
-    
-    throw new ConflictException('Bạn đã đăng ký đề tài trong đợt này rồi');
-  }
+    if (existingRegistration) {
+      console.log('Existing registration found:', {
+        registrationId: existingRegistration.id,
+        studentId: existingRegistration.studentId,
+        userId: existingRegistration.student?.user?.id,
+        thesisRoundId: existingRegistration.thesisRoundId,
+      });
+
+      throw new ConflictException('Bạn đã đăng ký đề tài trong đợt này rồi');
+    }
 
     // Nếu đăng ký đề tài được đề xuất
     if (proposedTopicId) {
       const proposedTopic = await this.proposedTopicRepository.findOne({
-        where: { id: proposedTopicId }
+        where: { id: proposedTopicId },
       });
 
       if (!proposedTopic) {
@@ -138,11 +179,15 @@ export class ThesisService {
       }
 
       if (proposedTopic.instructorId !== instructorId) {
-        throw new BadRequestException('Giảng viên không phải người đề xuất đề tài này');
+        throw new BadRequestException(
+          'Giảng viên không phải người đề xuất đề tài này',
+        );
       }
 
       // Cập nhật trạng thái đề tài đã được chọn
-      await this.proposedTopicRepository.update(proposedTopicId, { isTaken: true });
+      await this.proposedTopicRepository.update(proposedTopicId, {
+        isTaken: true,
+      });
     }
 
     // Tạo đăng ký đề tài
@@ -154,10 +199,11 @@ export class ThesisService {
       selfProposedTitle,
       selfProposedDescription,
       selectionReason,
-      registrationDate: new Date()
+      registrationDate: new Date(),
     });
 
-    const savedRegistration = await this.topicRegistrationRepository.save(topicRegistration);
+    const savedRegistration =
+      await this.topicRegistrationRepository.save(topicRegistration);
 
     // Gửi thông báo real-time cho giảng viên (nếu có userId)
     try {
@@ -169,11 +215,15 @@ export class ThesisService {
             registrationId: savedRegistration.id,
             studentName: student.user?.fullName || 'N/A',
             studentCode: student.studentCode,
-            topicTitle: proposedTopicId ? 
-              (await this.proposedTopicRepository.findOne({ where: { id: proposedTopicId } }))?.topicTitle :
-              selfProposedTitle,
-            registrationDate: savedRegistration.registrationDate
-          }
+            topicTitle: proposedTopicId
+              ? (
+                  await this.proposedTopicRepository.findOne({
+                    where: { id: proposedTopicId },
+                  })
+                )?.topicTitle
+              : selfProposedTitle,
+            registrationDate: savedRegistration.registrationDate,
+          },
         );
       }
     } catch (socketError) {
@@ -184,15 +234,18 @@ export class ThesisService {
     return {
       success: true,
       message: 'Đăng ký đề tài thành công',
-      data: savedRegistration
+      data: savedRegistration,
     };
   }
 
-  async getStudentRegistrations(instructorId: number, query: GetStudentRegistrationsDto) {
+  async getStudentRegistrations(
+    instructorId: number,
+    query: GetStudentRegistrationsDto,
+  ) {
     const { thesisRoundId, status } = query;
 
     const whereCondition: Record<string, any> = {
-      instructorId
+      instructorId,
     };
 
     if (thesisRoundId) {
@@ -210,16 +263,16 @@ export class ThesisService {
         'student.user',
         'student.classEntity',
         'thesisRound',
-        'proposedTopic'
+        'proposedTopic',
       ],
       order: {
-        registrationDate: 'DESC'
-      }
+        registrationDate: 'DESC',
+      },
     });
 
     return {
       success: true,
-      data: registrations.map(registration => ({
+      data: registrations.map((registration) => ({
         id: registration.id,
         student: {
           id: registration.student.id,
@@ -230,19 +283,21 @@ export class ThesisService {
           class: {
             id: registration.student.classEntity.id,
             className: registration.student.classEntity.className,
-            classCode: registration.student.classEntity.classCode
-          }
+            classCode: registration.student.classEntity.classCode,
+          },
         },
         thesisRound: {
           id: registration.thesisRound.id,
           roundName: registration.thesisRound.roundName,
-          roundCode: registration.thesisRound.roundCode
+          roundCode: registration.thesisRound.roundCode,
         },
-        proposedTopic: registration.proposedTopic ? {
-          id: registration.proposedTopic.id,
-          topicTitle: registration.proposedTopic.topicTitle,
-          topicCode: registration.proposedTopic.topicCode
-        } : null,
+        proposedTopic: registration.proposedTopic
+          ? {
+              id: registration.proposedTopic.id,
+              topicTitle: registration.proposedTopic.topicTitle,
+              topicCode: registration.proposedTopic.topicCode,
+            }
+          : null,
         selfProposedTitle: registration.selfProposedTitle,
         selfProposedDescription: registration.selfProposedDescription,
         selectionReason: registration.selectionReason,
@@ -252,24 +307,29 @@ export class ThesisService {
         headRejectionReason: registration.headRejectionReason,
         registrationDate: registration.registrationDate,
         instructorApprovalDate: registration.instructorApprovalDate,
-        headApprovalDate: registration.headApprovalDate
-      }))
+        headApprovalDate: registration.headApprovalDate,
+      })),
     };
   }
 
-  async approveTopicRegistration(instructorId: number, approveDto: ApproveTopicRegistrationDto) {
+  async approveTopicRegistration(
+    instructorId: number,
+    approveDto: ApproveTopicRegistrationDto,
+  ) {
     const { registrationId, approved, rejectionReason } = approveDto;
 
     const registration = await this.topicRegistrationRepository.findOne({
-      where: { 
+      where: {
         id: registrationId,
-        instructorId 
+        instructorId,
       },
-      relations: ['student', 'student.user', 'thesisRound']
+      relations: ['student', 'student.user', 'thesisRound'],
     });
 
     if (!registration) {
-      throw new NotFoundException('Đăng ký đề tài không tồn tại hoặc không thuộc quyền quản lý của bạn');
+      throw new NotFoundException(
+        'Đăng ký đề tài không tồn tại hoặc không thuộc quyền quản lý của bạn',
+      );
     }
 
     if (registration.instructorStatus !== 'Pending') {
@@ -278,7 +338,7 @@ export class ThesisService {
 
     const updateData: Record<string, any> = {
       instructorStatus: approved ? 'Approved' : 'Rejected',
-      instructorApprovalDate: new Date()
+      instructorApprovalDate: new Date(),
     };
 
     if (!approved && rejectionReason) {
@@ -294,34 +354,36 @@ export class ThesisService {
       {
         registrationId: registration.id,
         status: approved ? 'Approved' : 'Rejected',
-        message: approved ? 
-          'Đăng ký đề tài của bạn đã được phê duyệt' : 
-          'Đăng ký đề tài của bạn đã bị từ chối',
-        rejectionReason: rejectionReason
-      }
+        message: approved
+          ? 'Đăng ký đề tài của bạn đã được phê duyệt'
+          : 'Đăng ký đề tài của bạn đã bị từ chối',
+        rejectionReason: rejectionReason,
+      },
     );
 
     return {
       success: true,
-      message: approved ? 'Phê duyệt đăng ký thành công' : 'Từ chối đăng ký thành công',
+      message: approved
+        ? 'Phê duyệt đăng ký thành công'
+        : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected'
-      }
+        status: approved ? 'Approved' : 'Rejected',
+      },
     };
   }
 
   // Lấy danh sách đề tài được đề xuất
   async getProposedTopics(query: GetProposedTopicsDto) {
-    const { 
-      thesisRoundId, 
-      instructorId, 
-      isTaken, 
-      search, 
-      page = 1, 
-      limit = 10, 
-      sortBy = 'createdAt', 
-      sortOrder = 'DESC' 
+    const {
+      thesisRoundId,
+      instructorId,
+      isTaken,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
     } = query;
 
     // Xây dựng điều kiện where
@@ -334,11 +396,15 @@ export class ThesisService {
 
     // Thêm các filter
     if (thesisRoundId) {
-      queryBuilder.andWhere('proposedTopic.thesisRoundId = :thesisRoundId', { thesisRoundId });
+      queryBuilder.andWhere('proposedTopic.thesisRoundId = :thesisRoundId', {
+        thesisRoundId,
+      });
     }
 
     if (instructorId) {
-      queryBuilder.andWhere('proposedTopic.instructorId = :instructorId', { instructorId });
+      queryBuilder.andWhere('proposedTopic.instructorId = :instructorId', {
+        instructorId,
+      });
     }
 
     if (isTaken !== undefined) {
@@ -349,15 +415,16 @@ export class ThesisService {
     if (search) {
       queryBuilder.andWhere(
         '(proposedTopic.topicTitle ILIKE :search OR proposedTopic.topicDescription ILIKE :search OR user.fullName ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
     // Sắp xếp
     const validSortFields = ['createdAt', 'topicTitle', 'updatedAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    const validSortOrder = sortOrder === 'ASC' || sortOrder === 'DESC' ? sortOrder : 'DESC';
-    
+    const validSortOrder =
+      sortOrder === 'ASC' || sortOrder === 'DESC' ? sortOrder : 'DESC';
+
     if (sortBy === 'instructorName') {
       queryBuilder.orderBy('user.fullName', validSortOrder);
     } else {
@@ -378,7 +445,7 @@ export class ThesisService {
 
     return {
       success: true,
-      data: proposedTopics.map(topic => ({
+      data: proposedTopics.map((topic) => ({
         id: topic.id,
         topicCode: topic.topicCode,
         topicTitle: topic.topicTitle,
@@ -394,16 +461,16 @@ export class ThesisService {
           instructorCode: topic.instructor.instructorCode,
           fullName: topic.instructor.user.fullName,
           email: topic.instructor.user.email,
-          phone: topic.instructor.user.phone
+          phone: topic.instructor.user.phone,
         },
         thesisRound: {
           id: topic.thesisRound.id,
           roundName: topic.thesisRound.roundName,
           roundCode: topic.thesisRound.roundCode,
-          status: topic.thesisRound.status
+          status: topic.thesisRound.status,
         },
         createdAt: topic.createdAt,
-        updatedAt: topic.updatedAt
+        updatedAt: topic.updatedAt,
       })),
       pagination: {
         currentPage: page,
@@ -411,19 +478,19 @@ export class ThesisService {
         totalItems: total,
         itemsPerPage: limit,
         hasNextPage,
-        hasPrevPage
-      }
+        hasPrevPage,
+      },
     };
   }
 
   async getAvailableTopicsForStudent(query: GetProposedTopicsDto) {
-    const { 
-      thesisRoundId, 
-      search, 
-      page = 1, 
-      limit = 10, 
-      sortBy = 'createdAt', 
-      sortOrder = 'DESC' 
+    const {
+      thesisRoundId,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
     } = query;
 
     // Xây dựng điều kiện where - chỉ lấy đề tài chưa được chọn và đang active
@@ -437,25 +504,30 @@ export class ThesisService {
 
     // Chỉ hiển thị đề tài của đợt luận văn đang mở đăng ký
     if (thesisRoundId) {
-      queryBuilder.andWhere('proposedTopic.thesisRoundId = :thesisRoundId', { thesisRoundId });
+      queryBuilder.andWhere('proposedTopic.thesisRoundId = :thesisRoundId', {
+        thesisRoundId,
+      });
     } else {
       // Nếu không chỉ định đợt cụ thể, chỉ lấy đợt đang mở đăng ký
-      queryBuilder.andWhere('thesisRound.status = :roundStatus', { roundStatus: 'In Progress' });
+      queryBuilder.andWhere('thesisRound.status = :roundStatus', {
+        roundStatus: 'In Progress',
+      });
     }
 
     // Tìm kiếm theo tiêu đề, mô tả hoặc tên giảng viên
     if (search) {
       queryBuilder.andWhere(
         '(proposedTopic.topicTitle ILIKE :search OR proposedTopic.topicDescription ILIKE :search OR user.fullName ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
     // Sắp xếp
     const validSortFields2 = ['createdAt', 'topicTitle', 'updatedAt'];
     const sortField2 = validSortFields2.includes(sortBy) ? sortBy : 'createdAt';
-    const validSortOrder2 = sortOrder === 'ASC' || sortOrder === 'DESC' ? sortOrder : 'DESC';
-    
+    const validSortOrder2 =
+      sortOrder === 'ASC' || sortOrder === 'DESC' ? sortOrder : 'DESC';
+
     if (sortBy === 'instructorName') {
       queryBuilder.orderBy('user.fullName', validSortOrder2);
     } else {
@@ -476,7 +548,7 @@ export class ThesisService {
 
     return {
       success: true,
-      data: proposedTopics.map(topic => ({
+      data: proposedTopics.map((topic) => ({
         id: topic.id,
         topicCode: topic.topicCode,
         topicTitle: topic.topicTitle,
@@ -490,17 +562,17 @@ export class ThesisService {
           instructorCode: topic.instructor.instructorCode,
           fullName: topic.instructor.user.fullName,
           email: topic.instructor.user.email,
-          phone: topic.instructor.user.phone
+          phone: topic.instructor.user.phone,
         },
         thesisRound: {
           id: topic.thesisRound.id,
           roundName: topic.thesisRound.roundName,
           roundCode: topic.thesisRound.roundCode,
           status: topic.thesisRound.status,
-          registrationDeadline: topic.thesisRound.registrationDeadline
+          registrationDeadline: topic.thesisRound.registrationDeadline,
         },
         createdAt: topic.createdAt,
-        updatedAt: topic.updatedAt
+        updatedAt: topic.updatedAt,
       })),
       pagination: {
         currentPage: page,
@@ -508,13 +580,16 @@ export class ThesisService {
         totalItems: total,
         itemsPerPage: limit,
         hasNextPage: hasNextPage2,
-        hasPrevPage: hasPrevPage2
-      }
+        hasPrevPage: hasPrevPage2,
+      },
     };
   }
 
   // Lấy lịch sử đăng ký đề tài của sinh viên
-  async getStudentTopicRegistrations(studentId: number, query: GetMyRegistrationsDto) {
+  async getStudentTopicRegistrations(
+    studentId: number,
+    query: GetMyRegistrationsDto,
+  ) {
     const { page = 1, limit = 10 } = query;
 
     const queryBuilder = this.topicRegistrationRepository
@@ -538,25 +613,27 @@ export class ThesisService {
 
     return {
       success: true,
-      data: registrations.map(registration => ({
+      data: registrations.map((registration) => ({
         id: registration.id,
         thesisRound: {
           id: registration.thesisRound.id,
           roundName: registration.thesisRound.roundName,
           roundCode: registration.thesisRound.roundCode,
-          status: registration.thesisRound.status
+          status: registration.thesisRound.status,
         },
         instructor: {
           id: registration.instructor.id,
           instructorCode: registration.instructor.instructorCode,
           fullName: registration.instructor.user.fullName,
-          email: registration.instructor.user.email
+          email: registration.instructor.user.email,
         },
-        proposedTopic: registration.proposedTopic ? {
-          id: registration.proposedTopic.id,
-          topicCode: registration.proposedTopic.topicCode,
-          topicTitle: registration.proposedTopic.topicTitle
-        } : null,
+        proposedTopic: registration.proposedTopic
+          ? {
+              id: registration.proposedTopic.id,
+              topicCode: registration.proposedTopic.topicCode,
+              topicTitle: registration.proposedTopic.topicTitle,
+            }
+          : null,
         selfProposedTitle: registration.selfProposedTitle,
         selfProposedDescription: registration.selfProposedDescription,
         selectionReason: registration.selectionReason,
@@ -566,7 +643,7 @@ export class ThesisService {
         headRejectionReason: registration.headRejectionReason,
         registrationDate: registration.registrationDate,
         instructorApprovalDate: registration.instructorApprovalDate,
-        headApprovalDate: registration.headApprovalDate
+        headApprovalDate: registration.headApprovalDate,
       })),
       pagination: {
         currentPage: page,
@@ -574,20 +651,30 @@ export class ThesisService {
         totalItems: total,
         itemsPerPage: limit,
         hasNextPage: hasNextPage3,
-        hasPrevPage: hasPrevPage3
-      }
+        hasPrevPage: hasPrevPage3,
+      },
     };
   }
 
   // Tạo đề tài đề xuất
-  async createProposedTopic(instructorId: number, createDto: CreateProposedTopicDto) {
+  async createProposedTopic(
+    instructorId: number,
+    createDto: CreateProposedTopicDto,
+  ) {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { topicCode, topicTitle, thesisRoundId, maxStudents, notes, ...otherData } = createDto;
+    const {
+      topicCode,
+      topicTitle,
+      thesisRoundId,
+      maxStudents,
+      notes,
+      ...otherData
+    } = createDto;
     // maxStudents và notes được frontend gửi nhưng không được lưu vào entity (entity không có trường này)
 
     // Kiểm tra đợt luận văn tồn tại
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: thesisRoundId }
+      where: { id: thesisRoundId },
     });
 
     if (!thesisRound) {
@@ -598,8 +685,8 @@ export class ThesisService {
     const existingTopic = await this.proposedTopicRepository.findOne({
       where: {
         topicCode,
-        thesisRoundId
-      }
+        thesisRoundId,
+      },
     });
 
     if (existingTopic) {
@@ -611,7 +698,7 @@ export class ThesisService {
       topicCode,
       topicTitle,
       instructorId,
-      thesisRoundId
+      thesisRoundId,
     });
 
     const savedTopic = await this.proposedTopicRepository.save(proposedTopic);
@@ -619,22 +706,22 @@ export class ThesisService {
     return {
       success: true,
       message: 'Tạo đề tài đề xuất thành công',
-      data: savedTopic
+      data: savedTopic,
     };
   }
 
   // Lấy danh sách đợt luận văn với phân trang và tìm kiếm
   async getThesisRounds(query: GetThesisRoundsDto) {
-    const { 
-      thesisTypeId, 
-      departmentId, 
-      facultyId, 
-      status, 
+    const {
+      thesisTypeId,
+      departmentId,
+      facultyId,
+      status,
       search,
       page = 1,
       limit = 10,
       sortBy = 'createdAt',
-      sortOrder = 'DESC'
+      sortOrder = 'DESC',
     } = query;
 
     const queryBuilder = this.thesisRoundRepository
@@ -645,15 +732,21 @@ export class ThesisService {
 
     // Áp dụng filters
     if (thesisTypeId) {
-      queryBuilder.andWhere('thesisRound.thesisTypeId = :thesisTypeId', { thesisTypeId });
+      queryBuilder.andWhere('thesisRound.thesisTypeId = :thesisTypeId', {
+        thesisTypeId,
+      });
     }
 
     if (departmentId) {
-      queryBuilder.andWhere('thesisRound.departmentId = :departmentId', { departmentId });
+      queryBuilder.andWhere('thesisRound.departmentId = :departmentId', {
+        departmentId,
+      });
     }
 
     if (facultyId) {
-      queryBuilder.andWhere('thesisRound.facultyId = :facultyId', { facultyId });
+      queryBuilder.andWhere('thesisRound.facultyId = :facultyId', {
+        facultyId,
+      });
     }
 
     if (status) {
@@ -664,25 +757,35 @@ export class ThesisService {
     if (search) {
       queryBuilder.andWhere(
         '(thesisRound.roundName ILIKE :search OR thesisRound.roundCode ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
     // Sắp xếp - mặc định sắp xếp theo createdAt DESC (mới nhất trước), sau đó theo id DESC để đảm bảo thứ tự
-    const validSortFields: string[] = ['createdAt', 'roundName', 'startDate', 'endDate', 'id'];
+    const validSortFields: string[] = [
+      'createdAt',
+      'roundName',
+      'startDate',
+      'endDate',
+      'id',
+    ];
     let sortField = 'createdAt';
-    if (sortBy && typeof sortBy === 'string' && validSortFields.includes(sortBy)) {
+    if (
+      sortBy &&
+      typeof sortBy === 'string' &&
+      validSortFields.includes(sortBy)
+    ) {
       sortField = sortBy;
     }
-    
+
     let finalSortOrder: 'ASC' | 'DESC' = 'DESC';
     if (sortOrder && sortOrder === 'ASC') {
       finalSortOrder = 'ASC';
     }
-    
+
     // Sắp xếp chính theo field được chọn
     queryBuilder.orderBy(`thesisRound.${sortField}`, finalSortOrder);
-    
+
     // Nếu không phải sắp xếp theo id, thêm sắp xếp phụ theo id để đảm bảo đợt mới nhất luôn ở đầu
     if (sortField !== 'id') {
       queryBuilder.addOrderBy('thesisRound.id', 'DESC');
@@ -711,8 +814,8 @@ export class ThesisService {
         totalItems: total,
         itemsPerPage: finalLimit,
         hasNextPage,
-        hasPrevPage
-      }
+        hasPrevPage,
+      },
     };
   }
 
@@ -720,7 +823,7 @@ export class ThesisService {
   async getThesisRoundById(id: number) {
     const thesisRound = await this.thesisRoundRepository.findOne({
       where: { id },
-      relations: ['thesisType', 'department', 'faculty']
+      relations: ['thesisType', 'department', 'faculty'],
     });
 
     if (!thesisRound) {
@@ -729,17 +832,17 @@ export class ThesisService {
 
     // Đếm số lượng đề tài được đề xuất trong đợt này
     const proposedTopicsCount = await this.proposedTopicRepository.count({
-      where: { thesisRoundId: id }
+      where: { thesisRoundId: id },
     });
 
     // Đếm số lượng giảng viên tham gia
     const instructorsCount = await this.instructorAssignmentRepository.count({
-      where: { thesisRoundId: id, status: true }
+      where: { thesisRoundId: id, status: true },
     });
 
     // Đếm số lượng sinh viên đăng ký
     const registrationsCount = await this.topicRegistrationRepository.count({
-      where: { thesisRoundId: id }
+      where: { thesisRoundId: id },
     });
 
     return {
@@ -749,9 +852,9 @@ export class ThesisService {
         statistics: {
           proposedTopicsCount,
           instructorsCount,
-          registrationsCount
-        }
-      }
+          registrationsCount,
+        },
+      },
     };
   }
 
@@ -759,11 +862,18 @@ export class ThesisService {
 
   // Tạo đợt đề tài (chỉ trưởng bộ môn)
   async createThesisRound(createDto: CreateThesisRoundDto) {
-    const { roundCode, roundName, thesisTypeId, departmentId, facultyId, ...otherData } = createDto;
+    const {
+      roundCode,
+      roundName,
+      thesisTypeId,
+      departmentId,
+      facultyId,
+      ...otherData
+    } = createDto;
 
     // Kiểm tra mã đợt đã tồn tại chưa
     const existingRound = await this.thesisRoundRepository.findOne({
-      where: { roundCode }
+      where: { roundCode },
     });
 
     if (existingRound) {
@@ -772,7 +882,7 @@ export class ThesisService {
 
     // Kiểm tra loại luận văn tồn tại
     const thesisType = await this.thesisTypeRepository.findOne({
-      where: { id: thesisTypeId }
+      where: { id: thesisTypeId },
     });
 
     if (!thesisType) {
@@ -787,7 +897,7 @@ export class ThesisService {
       departmentId,
       facultyId,
       ...otherData,
-      status: 'Preparing'
+      status: 'Preparing',
     });
 
     const savedRound = await this.thesisRoundRepository.save(thesisRound);
@@ -795,14 +905,14 @@ export class ThesisService {
     return {
       success: true,
       message: 'Tạo đợt luận văn thành công',
-      data: savedRound
+      data: savedRound,
     };
   }
 
   // Cập nhật đợt đề tài
   async updateThesisRound(roundId: number, updateDto: UpdateThesisRoundDto) {
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: roundId }
+      where: { id: roundId },
     });
 
     if (!thesisRound) {
@@ -814,22 +924,26 @@ export class ThesisService {
 
     const updatedRound = await this.thesisRoundRepository.findOne({
       where: { id: roundId },
-      relations: ['thesisType', 'department', 'faculty']
+      relations: ['thesisType', 'department', 'faculty'],
     });
 
     return {
       success: true,
       message: 'Cập nhật đợt luận văn thành công',
-      data: updatedRound
+      data: updatedRound,
     };
   }
 
   // ==================== QUẢN LÝ GIẢNG VIÊN TRONG ĐỢT ====================
 
   // Kiểm tra quyền quản lý đợt đề tài
-  private async checkThesisRoundManagementPermission(roundId: number, userId: number, userRole: string): Promise<ThesisRound> {
+  private async checkThesisRoundManagementPermission(
+    roundId: number,
+    userId: number,
+    userRole: string,
+  ): Promise<ThesisRound> {
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: roundId }
+      where: { id: roundId },
     });
 
     if (!thesisRound) {
@@ -845,16 +959,25 @@ export class ThesisService {
   }
 
   // Thêm một giảng viên vào đợt đề tài
-  async addInstructorToRound(roundId: number, addDto: AddInstructorToRoundDto, userId: number, userRole: string) {
+  async addInstructorToRound(
+    roundId: number,
+    addDto: AddInstructorToRoundDto,
+    userId: number,
+    userRole: string,
+  ) {
     // Kiểm tra quyền
-    const thesisRound = await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+    const thesisRound = await this.checkThesisRoundManagementPermission(
+      roundId,
+      userId,
+      userRole,
+    );
 
     const { instructorId, maxStudents = 5 } = addDto;
 
     // Kiểm tra giảng viên tồn tại
     const instructor = await this.instructorRepository.findOne({
       where: { id: instructorId },
-      relations: ['user', 'department']
+      relations: ['user', 'department'],
     });
 
     if (!instructor) {
@@ -862,17 +985,23 @@ export class ThesisService {
     }
 
     // Nếu đợt có departmentId, kiểm tra giảng viên có thuộc bộ môn đó không
-    if (thesisRound.departmentId && instructor.departmentId !== thesisRound.departmentId) {
-      throw new BadRequestException('Giảng viên không thuộc bộ môn của đợt đề tài này');
+    if (
+      thesisRound.departmentId &&
+      instructor.departmentId !== thesisRound.departmentId
+    ) {
+      throw new BadRequestException(
+        'Giảng viên không thuộc bộ môn của đợt đề tài này',
+      );
     }
 
     // Kiểm tra giảng viên đã được thêm vào đợt này chưa
-    const existingInstructor = await this.instructorAssignmentRepository.findOne({
-      where: {
-        thesisRoundId: roundId,
-        instructorId
-      }
-    });
+    const existingInstructor =
+      await this.instructorAssignmentRepository.findOne({
+        where: {
+          thesisRoundId: roundId,
+          instructorId,
+        },
+      });
 
     if (existingInstructor) {
       throw new ConflictException('Giảng viên đã được thêm vào đợt này rồi');
@@ -882,7 +1011,7 @@ export class ThesisService {
     let addedById: number | undefined;
     if (userRole === 'head_of_department') {
       const currentInstructor = await this.instructorRepository.findOne({
-        where: { userId }
+        where: { userId },
       });
       addedById = currentInstructor?.id;
     }
@@ -893,14 +1022,16 @@ export class ThesisService {
       instructorId,
       supervisionQuota: maxStudents,
       status: true,
-      addedBy: addedById
+      addedBy: addedById,
     });
 
     await this.instructorAssignmentRepository.save(instructorAssignment);
 
     // Tự động chuyển status từ 'Preparing' sang 'In Progress' khi thêm giảng viên đầu tiên
     if (thesisRound.status === 'Preparing') {
-      await this.thesisRoundRepository.update(roundId, { status: 'In Progress' });
+      await this.thesisRoundRepository.update(roundId, {
+        status: 'In Progress',
+      });
     }
 
     return {
@@ -913,15 +1044,20 @@ export class ThesisService {
           instructorCode: instructor.instructorCode,
           fullName: instructor.user.fullName,
           email: instructor.user.email,
-          department: instructor.department.departmentName
+          department: instructor.department.departmentName,
         },
-        maxStudents
-      }
+        maxStudents,
+      },
     };
   }
 
   // Thêm nhiều giảng viên vào đợt đề tài
-  async addMultipleInstructorsToRound(roundId: number, addDto: AddMultipleInstructorsDto, userId: number, userRole: string) {
+  async addMultipleInstructorsToRound(
+    roundId: number,
+    addDto: AddMultipleInstructorsDto,
+    userId: number,
+    userRole: string,
+  ) {
     console.log('=== DEBUG addMultipleInstructorsToRound START ===');
     console.log('roundId:', roundId);
     console.log('userId:', userId);
@@ -933,7 +1069,7 @@ export class ThesisService {
 
     // Kiểm tra quyền
     await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
-    
+
     // Kiểm tra bắt buộc có danh sách giảng viên
     if (!addDto.instructors || addDto.instructors.length === 0) {
       console.log('=== VALIDATION ERROR: No instructors provided ===');
@@ -949,37 +1085,80 @@ export class ThesisService {
     console.log('=== PROCESSING INSTRUCTORS ===');
     console.log('instructorsToProcess:', instructorsToProcess);
     console.log('instructorsToProcess.length:', instructorsToProcess.length);
-    
+
     for (let i = 0; i < instructorsToProcess.length; i++) {
       const instructorDto = instructorsToProcess[i];
-      console.log(`=== PROCESSING INSTRUCTOR ${i + 1}/${instructorsToProcess.length} ===`);
+      console.log(
+        `=== PROCESSING INSTRUCTOR ${i + 1}/${instructorsToProcess.length} ===`,
+      );
       console.log('instructorDto:', instructorDto);
       console.log('instructorDto.instructorId:', instructorDto.instructorId);
-      console.log('typeof instructorDto.instructorId:', typeof instructorDto.instructorId);
-      console.log('instructorDto.instructorId === null:', instructorDto.instructorId === null);
-      console.log('instructorDto.instructorId === undefined:', instructorDto.instructorId === undefined);
-      
+      console.log(
+        'typeof instructorDto.instructorId:',
+        typeof instructorDto.instructorId,
+      );
+      console.log(
+        'instructorDto.instructorId === null:',
+        instructorDto.instructorId === null,
+      );
+      console.log(
+        'instructorDto.instructorId === undefined:',
+        instructorDto.instructorId === undefined,
+      );
+
       try {
         // Kiểm tra instructorId có tồn tại và là số không
-        if (!instructorDto.instructorId || typeof instructorDto.instructorId !== 'number') {
-          console.log(`=== VALIDATION ERROR for instructor ${i + 1}: instructorId is invalid ===`);
-          console.log('instructorDto.instructorId:', instructorDto.instructorId);
-          console.log('typeof instructorDto.instructorId:', typeof instructorDto.instructorId);
-          throw new BadRequestException('instructorId phải là số và không được để trống');
+        if (
+          !instructorDto.instructorId ||
+          typeof instructorDto.instructorId !== 'number'
+        ) {
+          console.log(
+            `=== VALIDATION ERROR for instructor ${i + 1}: instructorId is invalid ===`,
+          );
+          console.log(
+            'instructorDto.instructorId:',
+            instructorDto.instructorId,
+          );
+          console.log(
+            'typeof instructorDto.instructorId:',
+            typeof instructorDto.instructorId,
+          );
+          throw new BadRequestException(
+            'instructorId phải là số và không được để trống',
+          );
         }
 
-        console.log(`Calling addInstructorToRound with instructorId: ${instructorDto.instructorId}`);
-        const result = await this.addInstructorToRound(roundId, instructorDto, userId, userRole);
-        console.log(`Success for instructorId ${instructorDto.instructorId}:`, result);
+        console.log(
+          `Calling addInstructorToRound with instructorId: ${instructorDto.instructorId}`,
+        );
+        const result = await this.addInstructorToRound(
+          roundId,
+          instructorDto,
+          userId,
+          userRole,
+        );
+        console.log(
+          `Success for instructorId ${instructorDto.instructorId}:`,
+          result,
+        );
         results.push(result.data);
       } catch (error) {
-        console.log(`Error for instructorId ${instructorDto.instructorId}:`, error);
-        console.log('Error message:', error instanceof Error ? error.message : 'Unknown error');
-        console.log('Error stack:', error instanceof Error ? error.stack : 'No stack');
-        
+        console.log(
+          `Error for instructorId ${instructorDto.instructorId}:`,
+          error,
+        );
+        console.log(
+          'Error message:',
+          error instanceof Error ? error.message : 'Unknown error',
+        );
+        console.log(
+          'Error stack:',
+          error instanceof Error ? error.stack : 'No stack',
+        );
+
         errors.push({
           instructorId: instructorDto?.instructorId ?? null,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : 'Unknown error',
         });
       }
     }
@@ -994,46 +1173,62 @@ export class ThesisService {
       message: `Đã thêm ${results.length} giảng viên thành công`,
       data: {
         added: results,
-        failed: errors
-      }
+        failed: errors,
+      },
     };
   }
 
   // Cập nhật thông tin giảng viên trong đợt
-  async updateInstructorInRound(roundId: number, instructorId: number, updateDto: UpdateInstructorInRoundDto, userId: number, userRole: string) {
+  async updateInstructorInRound(
+    roundId: number,
+    instructorId: number,
+    updateDto: UpdateInstructorInRoundDto,
+    userId: number,
+    userRole: string,
+  ) {
     // Kiểm tra quyền
     await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
 
-    const instructorAssignment = await this.instructorAssignmentRepository.findOne({
-      where: {
-        thesisRoundId: roundId,
-        instructorId
-      }
-    });
+    const instructorAssignment =
+      await this.instructorAssignmentRepository.findOne({
+        where: {
+          thesisRoundId: roundId,
+          instructorId,
+        },
+      });
 
     if (!instructorAssignment) {
       throw new NotFoundException('Giảng viên không có trong đợt đề tài này');
     }
 
-    await this.instructorAssignmentRepository.update(instructorAssignment.id, updateDto);
+    await this.instructorAssignmentRepository.update(
+      instructorAssignment.id,
+      updateDto,
+    );
 
     return {
       success: true,
-      message: 'Cập nhật thông tin giảng viên thành công'
+      message: 'Cập nhật thông tin giảng viên thành công',
     };
   }
 
   // Xóa giảng viên khỏi đợt đề tài
-  async removeInstructorFromRound(roundId: number, instructorId: number, userId: number, userRole: string) {
+  async removeInstructorFromRound(
+    roundId: number,
+    instructorId: number,
+    userId: number,
+    userRole: string,
+  ) {
     // Kiểm tra quyền
     await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
 
-    const instructorAssignment = await this.instructorAssignmentRepository.findOne({
-      where: {
-        thesisRoundId: roundId,
-        instructorId
-      }
-    });
+    const instructorAssignment =
+      await this.instructorAssignmentRepository.findOne({
+        where: {
+          thesisRoundId: roundId,
+          instructorId,
+        },
+      });
 
     if (!instructorAssignment) {
       throw new NotFoundException('Giảng viên không có trong đợt đề tài này');
@@ -1043,29 +1238,34 @@ export class ThesisService {
     const hasRegistrations = await this.topicRegistrationRepository.count({
       where: {
         thesisRoundId: roundId,
-        instructorId
-      }
+        instructorId,
+      },
     });
 
     if (hasRegistrations > 0) {
-      throw new BadRequestException('Không thể xóa giảng viên vì đã có sinh viên đăng ký với giảng viên này');
+      throw new BadRequestException(
+        'Không thể xóa giảng viên vì đã có sinh viên đăng ký với giảng viên này',
+      );
     }
 
     await this.instructorAssignmentRepository.remove(instructorAssignment);
 
     return {
       success: true,
-      message: 'Xóa giảng viên khỏi đợt đề tài thành công'
+      message: 'Xóa giảng viên khỏi đợt đề tài thành công',
     };
   }
 
   // Lấy danh sách giảng viên trong đợt đề tài
-  async getInstructorsInRound(roundId: number, query?: GetInstructorsInRoundDto) {
+  async getInstructorsInRound(
+    roundId: number,
+    query?: GetInstructorsInRoundDto,
+  ) {
     try {
       console.log(`[DEBUG] Getting instructors for roundId: ${roundId}`);
-      
+
       const whereCondition: Record<string, any> = {
-        thesisRoundId: roundId
+        thesisRoundId: roundId,
       };
 
       if (query?.status !== undefined) {
@@ -1078,8 +1278,8 @@ export class ThesisService {
         where: whereCondition,
         relations: ['instructor', 'instructor.user', 'instructor.department'],
         order: {
-          createdAt: 'ASC'
-        }
+          createdAt: 'ASC',
+        },
       });
 
       console.log(`[DEBUG] Found ${instructors.length} instructors`);
@@ -1089,13 +1289,13 @@ export class ThesisService {
         console.log(`[DEBUG] No instructors found for roundId: ${roundId}`);
         return {
           success: true,
-          data: []
+          data: [],
         };
       }
 
       // Xử lý từng giảng viên
       const instructorsWithCount: any[] = [];
-      
+
       for (const item of instructors) {
         try {
           // Kiểm tra item và instructor tồn tại
@@ -1117,17 +1317,19 @@ export class ThesisService {
               phone: item.instructor.user?.phone || '',
               degree: item.instructor.degree || '',
               academicTitle: item.instructor.academicTitle || '',
-              department: item.instructor.department ? {
-                id: item.instructor.department.id,
-                departmentName: item.instructor.department.departmentName,
-                departmentCode: item.instructor.department.departmentCode
-              } : null
+              department: item.instructor.department
+                ? {
+                    id: item.instructor.department.id,
+                    departmentName: item.instructor.department.departmentName,
+                    departmentCode: item.instructor.department.departmentCode,
+                  }
+                : null,
             },
             maxStudents: item.supervisionQuota,
             currentStudents: registrationCount,
             availableSlots: item.supervisionQuota - registrationCount,
             status: item.status,
-            createdAt: item.createdAt
+            createdAt: item.createdAt,
           };
 
           instructorsWithCount.push(instructorData);
@@ -1137,16 +1339,96 @@ export class ThesisService {
         }
       }
 
-      console.log(`[DEBUG] Processed ${instructorsWithCount.length} instructors successfully`);
+      console.log(
+        `[DEBUG] Processed ${instructorsWithCount.length} instructors successfully`,
+      );
 
       return {
         success: true,
-        data: instructorsWithCount
+        data: instructorsWithCount,
       };
     } catch (error) {
       console.error('Error in getInstructorsInRound:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Lỗi khi lấy danh sách giảng viên: ${errorMessage}`);
     }
+  }
+  async getProposedTopicsByInstructor(instructorId: number) {
+    return this.proposedTopicRepository.find({
+      where: { instructorId },
+      order: { createdAt: 'DESC' }, // mới nhất lên đầu
+    });
+  }
+  // thesis.service.ts
+  async deleteProposedTopic(instructorId: number, topicId: number) {
+    const topic = await this.proposedTopicRepository.findOne({
+      where: { id: topicId, instructorId },
+    });
+
+    if (!topic) {
+      throw new NotFoundException(
+        'Đề tài không tồn tại hoặc không thuộc quyền bạn',
+      );
+    }
+
+    await this.proposedTopicRepository.delete(topicId);
+    return { message: 'Xóa đề tài thành công' };
+  }
+  // Hàm sửa đề xuất đề tài
+  async updateProposedTopic(updateDto: UpdateProposedTopicDto) {
+    const { instructorId, topicId, ...data } = updateDto;
+
+    const topic = await this.proposedTopicRepository.findOne({
+      where: { id: topicId, instructorId },
+    });
+
+    if (!topic) {
+      throw new NotFoundException(
+        'Đề tài không tồn tại hoặc không thuộc quyền bạn',
+      );
+    }
+
+    Object.assign(topic, data);
+    await this.proposedTopicRepository.save(topic);
+
+    return topic;
+  }
+  // service
+  async createManyProposedTopics(
+    data: CreateProposedTopicDto[],
+    instructorId: number,
+  ) {
+    // Gán instructorId cho tất cả đề tài
+    const topics = data.map((item) => ({
+      ...item,
+      instructorId,
+    }));
+
+    // bulk insert
+    const entities = this.proposedTopicRepository.create(topics);
+    return this.proposedTopicRepository.save(entities); // lưu tất cả cùng lúc
+  }
+  // Hàm tìm kiếm
+  async searchProposedTopics(searchDto: SearchProposedTopicDto) {
+    const { query } = searchDto;
+
+    if (!query) {
+      // Nếu không có từ khóa, trả về tất cả
+      return this.proposedTopicRepository.find();
+    }
+
+    // Tìm kiếm nhiều trường cùng lúc
+    return this.proposedTopicRepository.find({
+      where: [
+        { topicCode: ILike(`%${query}%`) },
+        { topicTitle: ILike(`%${query}%`) },
+        { topicDescription: ILike(`%${query}%`) },
+        { objectives: ILike(`%${query}%`) },
+        { studentRequirements: ILike(`%${query}%`) },
+        { technologiesUsed: ILike(`%${query}%`) },
+        { topicReferences: ILike(`%${query}%`) },
+      ],
+    });
   }
 }

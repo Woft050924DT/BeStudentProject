@@ -1,25 +1,46 @@
-import { 
-  Controller, 
-  Post, 
-  Get, 
-  Put, 
-  Body, 
-  Param, 
-  Query, 
-  UseGuards, 
+import {
+  Controller,
+  Post,
+  Get,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
   Request,
   ParseIntPipe,
-  BadRequestException
+  BadRequestException,
+  Delete,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../jwt/jwt-auth.guard';
 import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { ThesisService } from './thesis.service';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
-import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto } from './dto/proposed-topic.dto';
-import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
-import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import {
+  RegisterTopicDto,
+  ApproveTopicRegistrationDto,
+  GetStudentRegistrationsDto,
+  GetMyRegistrationsDto,
+} from './dto/register-topic.dto';
+import {
+  CreateProposedTopicDto,
+  UpdateProposedTopicDto,
+  GetProposedTopicsDto,
+  SearchProposedTopicDto,
+} from './dto/proposed-topic.dto';
+import {
+  CreateThesisRoundDto,
+  UpdateThesisRoundDto,
+  GetThesisRoundsDto,
+} from './dto/thesis-round.dto';
+import {
+  AddInstructorToRoundDto,
+  AddMultipleInstructorsDto,
+  UpdateInstructorInRoundDto,
+  GetInstructorsInRoundDto,
+} from './dto/thesis-round-instructor.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('thesis')
@@ -33,25 +54,34 @@ export class ThesisController {
   @Post('register-topic')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async registerTopic(@Request() req: AuthenticatedRequest, @Body() registerTopicDto: RegisterTopicDto) {
+  async registerTopic(
+    @Request() req: AuthenticatedRequest,
+    @Body() registerTopicDto: RegisterTopicDto,
+  ) {
     try {
       // Lấy studentId từ userId (không cần studentId trong token)
       let studentId: number | undefined = req.user.studentId;
-      
+
       // Nếu không có studentId trong token, lấy từ userId
       if (!studentId) {
         const userId = req.user.userId;
-        const foundStudentId = await this.thesisService.getStudentIdByUserId(userId);
+        const foundStudentId =
+          await this.thesisService.getStudentIdByUserId(userId);
         if (foundStudentId) {
           studentId = foundStudentId;
         }
       }
-      
+
       if (!studentId) {
-        throw new BadRequestException('Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.');
+        throw new BadRequestException(
+          'Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.',
+        );
       }
-      
-      return await this.thesisService.registerTopic(studentId, registerTopicDto);
+
+      return await this.thesisService.registerTopic(
+        studentId,
+        registerTopicDto,
+      );
     } catch (error) {
       // Log lỗi để debug
       console.error('Error in registerTopic:', error);
@@ -74,7 +104,10 @@ export class ThesisController {
   @Get('my-registrations')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async getStudentTopicRegistrations(@Request() req: AuthenticatedRequest, @Query() query: GetMyRegistrationsDto) {
+  async getStudentTopicRegistrations(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetMyRegistrationsDto,
+  ) {
     const studentId = req.user.studentId;
     if (!studentId) {
       throw new Error('Student ID not found');
@@ -86,7 +119,10 @@ export class ThesisController {
   @Get('students')
   @Roles(UserRole.STUDENT)
   @UseGuards(RolesGuard)
-  async getStudentRegistrationsAlias(@Request() req: AuthenticatedRequest, @Query() query: GetMyRegistrationsDto) {
+  async getStudentRegistrationsAlias(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetMyRegistrationsDto,
+  ) {
     const studentId = req.user.studentId;
     if (!studentId) {
       throw new Error('Student ID not found');
@@ -106,12 +142,14 @@ export class ThesisController {
     return this.thesisService.getThesisRoundById(id);
   }
 
-
   // Lấy danh sách sinh viên đăng ký đề tài (chỉ giảng viên)
   @Get('student-registrations')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async getStudentRegistrations(@Request() req: AuthenticatedRequest, @Query() query: GetStudentRegistrationsDto) {
+  async getStudentRegistrations(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetStudentRegistrationsDto,
+  ) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
       throw new Error('Instructor ID not found');
@@ -123,22 +161,31 @@ export class ThesisController {
   @Put('approve-registration')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async approveTopicRegistration(@Request() req: AuthenticatedRequest, @Body() approveDto: ApproveTopicRegistrationDto) {
+  async approveTopicRegistration(
+    @Request() req: AuthenticatedRequest,
+    @Body() approveDto: ApproveTopicRegistrationDto,
+  ) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
       throw new Error('Instructor ID not found');
     }
-    return this.thesisService.approveTopicRegistration(instructorId, approveDto);
+    return this.thesisService.approveTopicRegistration(
+      instructorId,
+      approveDto,
+    );
   }
 
   // Tạo đề tài đề xuất (chỉ giảng viên)
   @Post('proposed-topics')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async createProposedTopic(@Request() req: AuthenticatedRequest, @Body() createDto: CreateProposedTopicDto) {
+  async createProposedTopic(
+    @Request() req: AuthenticatedRequest,
+    @Body() createDto: CreateProposedTopicDto,
+  ) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
-      throw new BadRequestException('Không tìm thấy thông tin giảng viên. Vui lòng đăng nhập lại.');
+      throw new BadRequestException('');
     }
     return this.thesisService.createProposedTopic(instructorId, createDto);
   }
@@ -148,21 +195,21 @@ export class ThesisController {
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
   updateProposedTopic(
-    @Request() req: AuthenticatedRequest, 
-    @Param('id', ParseIntPipe) id: number, 
-    @Body() updateDto: UpdateProposedTopicDto
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdateProposedTopicDto,
   ) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
       throw new Error('Instructor ID not found');
     }
-    // TODO: Implement update proposed topic - will use id and updateDto
-    void id;
-    void updateDto;
-    return {
-      success: true,
-      message: 'Cập nhật đề tài đề xuất thành công'
-    };
+
+    // Gán các giá trị bắt buộc vào DTO
+    updateDto.topicId = id;
+    updateDto.instructorId = instructorId;
+
+    // Gọi service
+    return this.thesisService.updateProposedTopic(updateDto);
   }
 
   // ==================== ADMIN & TRƯỞNG BỘ MÔN ====================
@@ -180,8 +227,8 @@ export class ThesisController {
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async updateThesisRound(
-    @Param('id', ParseIntPipe) id: number, 
-    @Body() updateDto: UpdateThesisRoundDto
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdateThesisRoundDto,
   ) {
     return this.thesisService.updateThesisRound(id, updateDto);
   }
@@ -193,11 +240,16 @@ export class ThesisController {
   async addInstructorToRound(
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
-    @Body() addDto: AddInstructorToRoundDto
+    @Body() addDto: AddInstructorToRoundDto,
   ) {
     const userId = req.user.id;
     const userRole = req.user.role;
-    return this.thesisService.addInstructorToRound(roundId, addDto, userId, userRole);
+    return this.thesisService.addInstructorToRound(
+      roundId,
+      addDto,
+      userId,
+      userRole,
+    );
   }
 
   // Thêm nhiều giảng viên vào đợt đề tài (chỉ trưởng bộ môn)
@@ -207,7 +259,7 @@ export class ThesisController {
   async addMultipleInstructorsToRound(
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
-    @Body() addDto: AddMultipleInstructorsDto
+    @Body() addDto: AddMultipleInstructorsDto,
   ) {
     const userId = req.user.id;
     const userRole = req.user.role;
@@ -219,14 +271,19 @@ export class ThesisController {
     console.log('addDto.instructors?.length:', addDto.instructors?.length);
     console.log('addDto keys:', Object.keys(addDto));
 
-    return this.thesisService.addMultipleInstructorsToRound(roundId, addDto, userId, userRole);
+    return this.thesisService.addMultipleInstructorsToRound(
+      roundId,
+      addDto,
+      userId,
+      userRole,
+    );
   }
 
   // Lấy danh sách giảng viên trong đợt đề tài (tất cả user)v
   @Get('thesis-rounds/:roundId/instructors')
   async getInstructorsInRound(
     @Param('roundId', ParseIntPipe) roundId: number,
-    @Query() query: GetInstructorsInRoundDto
+    @Query() query: GetInstructorsInRoundDto,
   ) {
     return this.thesisService.getInstructorsInRound(roundId, query);
   }
@@ -239,11 +296,17 @@ export class ThesisController {
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Param('instructorId', ParseIntPipe) instructorId: number,
-    @Body() updateDto: UpdateInstructorInRoundDto
+    @Body() updateDto: UpdateInstructorInRoundDto,
   ) {
     const userId = req.user.id;
     const userRole = req.user.role;
-    return this.thesisService.updateInstructorInRound(roundId, instructorId, updateDto, userId, userRole);
+    return this.thesisService.updateInstructorInRound(
+      roundId,
+      instructorId,
+      updateDto,
+      userId,
+      userRole,
+    );
   }
 
   // Xóa giảng viên khỏi đợt đề tài (chỉ trưởng bộ môn)
@@ -253,11 +316,16 @@ export class ThesisController {
   async removeInstructorFromRound(
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
-    @Param('instructorId', ParseIntPipe) instructorId: number
+    @Param('instructorId', ParseIntPipe) instructorId: number,
   ) {
     const userId = req.user.id;
     const userRole = req.user.role;
-    return this.thesisService.removeInstructorFromRound(roundId, instructorId, userId, userRole);
+    return this.thesisService.removeInstructorFromRound(
+      roundId,
+      instructorId,
+      userId,
+      userRole,
+    );
   }
 
   // Lấy thống kê đăng ký đề tài (chỉ admin)
@@ -272,8 +340,62 @@ export class ThesisController {
         totalRegistrations: 0,
         approvedRegistrations: 0,
         pendingRegistrations: 0,
-        rejectedRegistrations: 0
-      }
+        rejectedRegistrations: 0,
+      },
     };
+  }
+  // Lấy đề xuất đề tài của giảng viên
+  @Get('proposed-topics')
+  @Roles(UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async getProposedTopicsByInstructor(@Request() req: AuthenticatedRequest) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không xác định giảng viên');
+    }
+
+    return this.thesisService.getProposedTopicsByInstructor(instructorId);
+  }
+
+  // Xóa đề tài đề xuất (chỉ giảng viên)
+  @Delete('proposed-topics/:id')
+  @Roles(UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async deleteProposedTopic(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') topicId: string, // Lấy string trước
+  ) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new NotFoundException('Instructor không hợp lệ');
+    }
+
+    // Convert sang number trước khi gửi vào service
+    const topicIdNumber = Number(topicId);
+    if (isNaN(topicIdNumber)) {
+      throw new BadRequestException('ID đề tài không hợp lệ');
+    }
+
+    return this.thesisService.deleteProposedTopic(instructorId, topicIdNumber);
+  }
+  //Thêm de tài từ excel
+  // controller
+  @Post('proposed-topics/bulk')
+  @Roles(UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async createManyProposedTopics(
+    @Body() data: CreateProposedTopicDto[],
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không xác định giảng viên');
+    }
+
+    return this.thesisService.createManyProposedTopics(data, instructorId);
+  }
+  @Get('proposed-topics/search')
+  async searchProposedTopics(@Query() searchDto: SearchProposedTopicDto) {
+    return this.thesisService.searchProposedTopics(searchDto);
   }
 }

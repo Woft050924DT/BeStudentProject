@@ -64,6 +64,9 @@ export class ProposedTopic {
   @JoinColumn({ name: 'thesis_round_id' })
   thesisRound: ThesisRound;
 
-  @OneToMany(() => TopicRegistration, (topicRegistration) => topicRegistration.proposedTopic)
+  @OneToMany(
+    () => TopicRegistration,
+    (topicRegistration) => topicRegistration.proposedTopic,
+  )
   topicRegistrations: TopicRegistration[];
 }
