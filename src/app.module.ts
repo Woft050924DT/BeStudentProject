@@ -27,7 +27,7 @@ import { DefenseResult } from './thesis/entities/defense-result.entity';
 import { StatusHistory } from './thesis/entities/status-history.entity';
 import { JwtModule } from './jwt/jwt.module';
 import { AuthModule } from './auth/auth.module';
-import {ConfigModule} from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { StudentModule } from './student/student.module';
 import { TeacherModule } from './teacher/teacher.module';
 import { AdminModule } from './admin/admin.module';
@@ -49,10 +49,10 @@ import { ThesisModule } from './thesis/thesis.module';
       host: 'localhost',
       port: 5432,
       username: 'postgres',
-      password: 'dt2711',
-      database: 'student',
+      password: '1234',
+      database: 'DoAn',
       entities: [
-        Users, 
+        Users,
         Student,
         Faculty,
         Department,
@@ -75,12 +75,12 @@ import { ThesisModule } from './thesis/thesis.module';
         CouncilMember,
         DefenseAssignment,
         DefenseResult,
-        StatusHistory
+        StatusHistory,
       ],
       synchronize: false,
       logging: true,
     }),
-    
+
     RedisModule,
     SocketModule,
     UserModule,

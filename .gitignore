@@ -11,6 +11,13 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+# Package files (nếu không muốn push)
+package.json
+package-lock.json
+
+# Docker compose
+docker-compose.yml
+docker-compose.override.yml
 
 # OS
 .DS_Store

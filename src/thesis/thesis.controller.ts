@@ -222,7 +222,7 @@ export class ThesisController {
     return this.thesisService.addMultipleInstructorsToRound(roundId, addDto, userId, userRole);
   }
 
-  // Lấy danh sách giảng viên trong đợt đề tài (tất cả user)
+  // Lấy danh sách giảng viên trong đợt đề tài (tất cả user)v
   @Get('thesis-rounds/:roundId/instructors')
   async getInstructorsInRound(
     @Param('roundId', ParseIntPipe) roundId: number,

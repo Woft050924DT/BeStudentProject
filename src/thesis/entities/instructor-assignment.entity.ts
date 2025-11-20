@@ -23,16 +23,28 @@ export class InstructorAssignment {
   @Column({ name: 'instructor_id' })
   instructorId: number;
 
-  @Column({ name: 'supervision_quota', default: 0, comment: 'Số lượng sinh viên tối đa mà giảng viên có thể hướng dẫn' })
+  @Column({
+    name: 'supervision_quota',
+    default: 0,
+    comment: 'Số lượng sinh viên tối đa mà giảng viên có thể hướng dẫn',
+  })
   supervisionQuota: number;
 
-  @Column({ name: 'current_load', default: 0, comment: 'Số lượng sinh viên hiện tại đang hướng dẫn' })
+  @Column({
+    name: 'current_load',
+    default: 0,
+    comment: 'Số lượng sinh viên hiện tại đang hướng dẫn',
+  })
   currentLoad: number;
 
   @Column({ type: 'text', nullable: true, comment: 'Ghi chú về phân công' })
   notes?: string;
 
-  @Column({ name: 'added_by', nullable: true, comment: 'ID của người thêm giảng viên vào đợt' })
+  @Column({
+    name: 'added_by',
+    nullable: true,
+    comment: 'ID của người thêm giảng viên vào đợt',
+  })
   addedBy?: number;
 
   @Column({ default: true, comment: 'Trạng thái hoạt động của phân công' })

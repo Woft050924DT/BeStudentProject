@@ -6,9 +6,9 @@ services:
     ports:
       - '5432:5432'
     environment:
-      POSTGRES_DB: student          
-      POSTGRES_USER: postgres       
-      POSTGRES_PASSWORD: dt2711
+      POSTGRES_DB: DoAn
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
     volumes:
       - pg_data:/var/lib/postgresql/pg_data
     networks:
