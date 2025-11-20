@@ -20,6 +20,14 @@ Tài liệu này mô tả các API endpoints dành cho **Actor: Giáo Vụ (ACAD
 11. [Xóa lớp học](#11-xóa-lớp-học)
 12. [Lấy lớp học theo chuyên ngành](#12-lấy-lớp-học-theo-chuyên-ngành)
 
+### Quản lý Học sinh
+13. [Tạo thông tin học sinh](#13-tạo-thông-tin-học-sinh)
+14. [Lấy danh sách học sinh](#14-lấy-danh-sách-học-sinh)
+15. [Lấy chi tiết học sinh](#15-lấy-chi-tiết-học-sinh)
+16. [Cập nhật thông tin học sinh](#16-cập-nhật-thông-tin-học-sinh)
+17. [Xóa học sinh](#17-xóa-học-sinh)
+18. [Lấy học sinh theo lớp](#18-lấy-học-sinh-theo-lớp)
+
 ---
 
 ## Base URL
@@ -2434,6 +2442,1222 @@ function ClassesList() {
 
 ---
 
+## 13. Tạo thông tin học sinh
+
+### Endpoint
+```
+POST /academic-staff/students
+```
+
+### Mô tả
+Tạo thông tin học sinh mới trong hệ thống. Giáo vụ có thể tạo thông tin học sinh cho người dùng đã có tài khoản.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `userId` | number | Yes | ID người dùng (phải tồn tại trong hệ thống) |
+| `studentCode` | string | Yes | Mã học sinh (2-20 ký tự, unique) |
+| `classId` | number | Yes | ID lớp học |
+| `admissionYear` | number | No | Năm nhập học |
+| `cvFile` | string | No | Đường dẫn file CV |
+
+### Request Example
+
+```json
+{
+  "userId": 1,
+  "studentCode": "SV001",
+  "classId": 1,
+  "admissionYear": 2020
+}
+```
+
+### Response Format
+
+#### Success Response (201 Created)
+
+```json
+{
+  "message": "Tạo thông tin học sinh thành công",
+  "student": {
+    "id": 1,
+    "userId": 1,
+    "studentCode": "SV001",
+    "classId": 1,
+    "admissionYear": 2020,
+    "academicStatus": "Active",
+    "status": true
+  }
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Dữ liệu không hợp lệ
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "studentCode should not be empty",
+    "userId must be a number"
+  ]
+}
+```
+
+**404 Not Found** - Người dùng hoặc lớp học không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy người dùng"
+}
+```
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+**409 Conflict** - Mã học sinh đã tồn tại hoặc người dùng đã có thông tin học sinh
+```json
+{
+  "statusCode": 409,
+  "message": "Mã sinh viên đã tồn tại"
+}
+```
+
+```json
+{
+  "statusCode": 409,
+  "message": "Người dùng đã có thông tin sinh viên"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 14. Lấy danh sách học sinh
+
+### Endpoint
+```
+GET /academic-staff/students
+```
+
+### Mô tả
+Lấy danh sách tất cả học sinh trong hệ thống với khả năng tìm kiếm, lọc và phân trang.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `page` | number | No | Số trang (mặc định: 1, tối thiểu: 1) |
+| `limit` | number | No | Số lượng mỗi trang (mặc định: 10, tối đa: 100) |
+| `classId` | number | No | Lọc theo ID lớp học |
+| `majorId` | number | No | Lọc theo ID chuyên ngành |
+| `departmentId` | number | No | Lọc theo ID bộ môn |
+| `facultyId` | number | No | Lọc theo ID khoa |
+| `search` | string | No | Tìm kiếm theo mã học sinh, tên, email |
+| `academicStatus` | string | No | Lọc theo trạng thái học tập (Active, On Leave, Withdrawn) |
+| `admissionYear` | number | No | Lọc theo năm nhập học |
+| `status` | boolean | No | Lọc theo trạng thái (true/false) |
+| `sortBy` | string | No | Sắp xếp theo: `studentCode`, `fullName`, `createdAt`, `gpa`, `admissionYear` (mặc định: `studentCode`) |
+| `sortOrder` | string | No | Thứ tự sắp xếp: `ASC` hoặc `DESC` (mặc định: `ASC`) |
+
+### Request Example
+
+```bash
+# Lấy tất cả học sinh
+GET /academic-staff/students
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Lấy với phân trang
+GET /academic-staff/students?page=1&limit=20
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Tìm kiếm và lọc
+GET /academic-staff/students?search=SV&classId=1&status=true&page=1&limit=10
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# Lọc theo khoa và trạng thái học tập
+GET /academic-staff/students?facultyId=1&academicStatus=Active&sortBy=fullName&sortOrder=ASC
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+**Khi có query params (filters, pagination):**
+```json
+{
+  "message": "Lấy danh sách học sinh thành công",
+  "data": [
+    {
+      "id": 1,
+      "userId": 1,
+      "studentCode": "SV001",
+      "user": {
+        "id": 1,
+        "username": "tranvanb",
+        "email": "tranvanb@example.com",
+        "fullName": "Trần Văn B",
+        "phone": "0912345678",
+        "gender": "Male",
+        "dateOfBirth": "2002-05-15",
+        "avatar": "/uploads/avatar/sv001.jpg"
+      },
+      "class": {
+        "id": 1,
+        "classCode": "CNTT19A",
+        "className": "Công nghệ thông tin K19 - Lớp A",
+        "major": {
+          "id": 1,
+          "majorCode": "CNTT",
+          "majorName": "Công nghệ thông tin",
+          "department": {
+            "id": 1,
+            "departmentCode": "CNTT",
+            "departmentName": "Công nghệ thông tin",
+            "faculty": {
+              "id": 1,
+              "facultyCode": "KHCN",
+              "facultyName": "Khoa Khoa học và Công nghệ"
+            }
+          }
+        }
+      },
+      "admissionYear": 2020,
+      "gpa": 3.5,
+      "creditsEarned": 120,
+      "academicStatus": "Active",
+      "cvFile": "/uploads/cv/sv001.pdf",
+      "status": true,
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 100,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 10
+  }
+}
+```
+
+**Khi không có query params (lấy tất cả):**
+```json
+{
+  "message": "Lấy danh sách học sinh thành công",
+  "data": [
+    {
+      "id": 1,
+      "userId": 1,
+      "studentCode": "SV001",
+      "user": {
+        "id": 1,
+        "username": "tranvanb",
+        "email": "tranvanb@example.com",
+        "fullName": "Trần Văn B",
+        "phone": "0912345678",
+        "gender": "Male",
+        "dateOfBirth": "2002-05-15",
+        "avatar": "/uploads/avatar/sv001.jpg"
+      },
+      "class": {
+        "id": 1,
+        "classCode": "CNTT19A",
+        "className": "Công nghệ thông tin K19 - Lớp A",
+        "major": {
+          "id": 1,
+          "majorCode": "CNTT",
+          "majorName": "Công nghệ thông tin",
+          "department": {
+            "id": 1,
+            "departmentCode": "CNTT",
+            "departmentName": "Công nghệ thông tin",
+            "faculty": {
+              "id": 1,
+              "facultyCode": "KHCN",
+              "facultyName": "Khoa Khoa học và Công nghệ"
+            }
+          }
+        }
+      },
+      "admissionYear": 2020,
+      "gpa": 3.5,
+      "creditsEarned": 120,
+      "academicStatus": "Active",
+      "cvFile": "/uploads/cv/sv001.pdf",
+      "status": true,
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 100,
+    "page": 1,
+    "limit": 100,
+    "totalPages": 1
+  }
+}
+```
+
+#### Error Responses
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 15. Lấy chi tiết học sinh
+
+### Endpoint
+```
+GET /academic-staff/students/:id
+```
+
+### Mô tả
+Lấy thông tin chi tiết của một học sinh theo ID.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của học sinh |
+
+### Request Example
+
+```bash
+GET /academic-staff/students/1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Lấy thông tin học sinh thành công",
+  "student": {
+    "id": 1,
+    "userId": 1,
+    "studentCode": "SV001",
+    "user": {
+      "id": 1,
+      "username": "tranvanb",
+      "email": "tranvanb@example.com",
+      "fullName": "Trần Văn B",
+      "phone": "0912345678",
+      "gender": "Male",
+      "dateOfBirth": "2002-05-15",
+      "address": "123 Đường ABC, Quận XYZ",
+      "avatar": "/uploads/avatar/sv001.jpg",
+      "status": true
+    },
+    "class": {
+      "id": 1,
+      "classCode": "CNTT19A",
+      "className": "Công nghệ thông tin K19 - Lớp A",
+      "major": {
+        "id": 1,
+        "majorCode": "CNTT",
+        "majorName": "Công nghệ thông tin",
+        "department": {
+          "id": 1,
+          "departmentCode": "CNTT",
+          "departmentName": "Công nghệ thông tin"
+        }
+      }
+    },
+    "admissionYear": 2020,
+    "gpa": 3.5,
+    "creditsEarned": 120,
+    "academicStatus": "Active",
+    "cvFile": "/uploads/cv/sv001.pdf",
+    "status": true,
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+#### Error Responses
+
+**404 Not Found** - Học sinh không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy sinh viên"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 16. Cập nhật thông tin học sinh
+
+### Endpoint
+```
+PUT /academic-staff/students/:id
+```
+
+### Mô tả
+Cập nhật thông tin của một học sinh. Tất cả các trường đều optional, chỉ cập nhật các trường được gửi.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của học sinh cần cập nhật |
+
+### Request Body
+
+Tất cả các trường đều **optional**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `classId` | number | No | ID lớp học mới |
+| `admissionYear` | number | No | Năm nhập học |
+| `gpa` | number | No | Điểm trung bình (0-4) |
+| `creditsEarned` | number | No | Số tín chỉ đã tích lũy |
+| `academicStatus` | string | No | Trạng thái học tập (Active, On Leave, Withdrawn) |
+| `cvFile` | string | No | Đường dẫn file CV |
+| `status` | boolean | No | Trạng thái hoạt động (true/false) |
+
+### Request Example
+
+```json
+{
+  "gpa": 3.7,
+  "creditsEarned": 130,
+  "academicStatus": "Active",
+  "status": true
+}
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Cập nhật thông tin học sinh thành công",
+  "student": {
+    "id": 1,
+    "userId": 1,
+    "studentCode": "SV001",
+    "classId": 1,
+    "admissionYear": 2020,
+    "gpa": 3.7,
+    "creditsEarned": 130,
+    "academicStatus": "Active",
+    "cvFile": "/uploads/cv/sv001.pdf",
+    "status": true,
+    "updatedAt": "2024-01-20T14:20:00.000Z"
+  }
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Dữ liệu không hợp lệ
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "gpa must be a number",
+    "creditsEarned must be a number"
+  ]
+}
+```
+
+**404 Not Found** - Học sinh hoặc lớp học không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy sinh viên"
+}
+```
+
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 17. Xóa học sinh
+
+### Endpoint
+```
+DELETE /academic-staff/students/:id
+```
+
+### Mô tả
+Xóa thông tin học sinh khỏi hệ thống. Không thể xóa học sinh nếu:
+- Đang có đề tài đăng ký
+- Đang có đề tài đang làm
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | number | Yes | ID của học sinh cần xóa |
+
+### Request Example
+
+```bash
+DELETE /academic-staff/students/1
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Xóa học sinh thành công"
+}
+```
+
+#### Error Responses
+
+**400 Bad Request** - Không thể xóa do ràng buộc
+```json
+{
+  "statusCode": 400,
+  "message": "Không thể xóa sinh viên đang có đề tài đăng ký"
+}
+```
+
+```json
+{
+  "statusCode": 400,
+  "message": "Không thể xóa sinh viên đang có đề tài"
+}
+```
+
+**404 Not Found** - Học sinh không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy sinh viên"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## 18. Lấy học sinh theo lớp
+
+### Endpoint
+```
+GET /academic-staff/classes/:classId/students
+```
+
+### Mô tả
+Lấy danh sách tất cả học sinh thuộc một lớp học cụ thể.
+
+### Authentication
+- **Required**: Yes
+- **Type**: JWT Bearer Token
+- **Role**: `ACADEMIC_STAFF`
+
+### Headers
+```http
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `classId` | number | Yes | ID của lớp học |
+
+### Request Example
+
+```bash
+GET /academic-staff/classes/1/students
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Response Format
+
+#### Success Response (200 OK)
+
+```json
+{
+  "message": "Lấy danh sách học sinh theo lớp thành công",
+  "students": [
+    {
+      "id": 1,
+      "studentCode": "SV001",
+      "user": {
+        "id": 1,
+        "fullName": "Trần Văn B",
+        "email": "tranvanb@example.com",
+        "phone": "0912345678"
+      },
+      "admissionYear": 2020,
+      "gpa": 3.5,
+      "creditsEarned": 120,
+      "academicStatus": "Active",
+      "status": true
+    },
+    {
+      "id": 2,
+      "studentCode": "SV002",
+      "user": {
+        "id": 2,
+        "fullName": "Nguyễn Thị C",
+        "email": "nguyenthic@example.com",
+        "phone": "0912345679"
+      },
+      "admissionYear": 2020,
+      "gpa": 3.8,
+      "creditsEarned": 125,
+      "academicStatus": "Active",
+      "status": true
+    }
+  ]
+}
+```
+
+#### Error Responses
+
+**404 Not Found** - Lớp học không tồn tại
+```json
+{
+  "statusCode": 404,
+  "message": "Không tìm thấy lớp học"
+}
+```
+
+**401 Unauthorized** - Chưa đăng nhập hoặc token không hợp lệ
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+**403 Forbidden** - Không có quyền truy cập
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource"
+}
+```
+
+---
+
+## Frontend Integration - Quản Lý Học Sinh
+
+### TypeScript Interfaces
+
+```typescript
+// Request Interfaces
+interface CreateStudentRequest {
+  userId: number;
+  studentCode: string;
+  classId: number;
+  admissionYear?: number;
+  cvFile?: string;
+}
+
+interface UpdateStudentRequest {
+  classId?: number;
+  admissionYear?: number;
+  gpa?: number;
+  creditsEarned?: number;
+  academicStatus?: string;
+  cvFile?: string;
+  status?: boolean;
+}
+
+interface GetStudentsQuery {
+  page?: number;
+  limit?: number;
+  classId?: number;
+  majorId?: number;
+  departmentId?: number;
+  facultyId?: number;
+  search?: string;
+  academicStatus?: string;
+  admissionYear?: number;
+  status?: boolean;
+  sortBy?: 'studentCode' | 'fullName' | 'createdAt' | 'gpa' | 'admissionYear';
+  sortOrder?: 'ASC' | 'DESC';
+}
+
+// Response Interfaces
+interface Student {
+  id: number;
+  userId: number;
+  studentCode: string;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    fullName: string;
+    phone?: string;
+    gender?: string;
+    dateOfBirth?: string;
+    address?: string;
+    avatar?: string;
+    status: boolean;
+  };
+  class: {
+    id: number;
+    classCode: string;
+    className: string;
+    major: {
+      id: number;
+      majorCode: string;
+      majorName: string;
+      department: {
+        id: number;
+        departmentCode: string;
+        departmentName: string;
+        faculty?: {
+          id: number;
+          facultyCode: string;
+          facultyName: string;
+        };
+      };
+    };
+  };
+  admissionYear?: number;
+  gpa?: number;
+  creditsEarned: number;
+  academicStatus: string;
+  cvFile?: string;
+  status: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+interface GetStudentsResponse {
+  message: string;
+  data: Student[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+interface StudentDetailResponse {
+  message: string;
+  student: Student;
+}
+
+interface CreateStudentResponse {
+  message: string;
+  student: {
+    id: number;
+    userId: number;
+    studentCode: string;
+    classId: number;
+    admissionYear?: number;
+    academicStatus: string;
+    status: boolean;
+  };
+}
+
+interface UpdateStudentResponse {
+  message: string;
+  student: {
+    id: number;
+    userId: number;
+    studentCode: string;
+    classId: number;
+    admissionYear?: number;
+    gpa?: number;
+    creditsEarned: number;
+    academicStatus: string;
+    cvFile?: string;
+    status: boolean;
+    updatedAt: string;
+  };
+}
+
+interface DeleteStudentResponse {
+  message: string;
+}
+```
+
+### API Call Functions
+
+```typescript
+// 1. Tạo học sinh
+async function createStudent(
+  data: CreateStudentRequest
+): Promise<CreateStudentResponse> {
+  const response = await fetch('/academic-staff/students', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to create student');
+  }
+
+  return response.json();
+}
+
+// 2. Lấy danh sách học sinh
+async function getStudents(
+  query?: GetStudentsQuery
+): Promise<GetStudentsResponse> {
+  const queryString = query ? `?${buildQueryString(query)}` : '';
+  const response = await fetch(`/academic-staff/students${queryString}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch students');
+  }
+
+  return response.json();
+}
+
+// 3. Lấy chi tiết học sinh
+async function getStudentById(
+  id: number
+): Promise<StudentDetailResponse> {
+  const response = await fetch(`/academic-staff/students/${id}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch student');
+  }
+
+  return response.json();
+}
+
+// 4. Cập nhật học sinh
+async function updateStudent(
+  id: number,
+  data: UpdateStudentRequest
+): Promise<UpdateStudentResponse> {
+  const response = await fetch(`/academic-staff/students/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to update student');
+  }
+
+  return response.json();
+}
+
+// 5. Xóa học sinh
+async function deleteStudent(
+  id: number
+): Promise<DeleteStudentResponse> {
+  const response = await fetch(`/academic-staff/students/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to delete student');
+  }
+
+  return response.json();
+}
+
+// 6. Lấy học sinh theo lớp
+async function getStudentsByClass(
+  classId: number
+): Promise<{ message: string; students: Student[] }> {
+  const response = await fetch(
+    `/academic-staff/classes/${classId}/students`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${getToken()}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Failed to fetch students');
+  }
+
+  return response.json();
+}
+```
+
+### Usage Examples
+
+```typescript
+// Ví dụ 1: Tạo học sinh mới
+try {
+  const result = await createStudent({
+    userId: 1,
+    studentCode: 'SV001',
+    classId: 1,
+    admissionYear: 2020
+  });
+  
+  console.log('Success:', result.message);
+  console.log('Created student ID:', result.student.id);
+  showNotification(result.message, 'success');
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+
+// Ví dụ 2: Lấy danh sách với filters và pagination
+try {
+  const result = await getStudents({
+    page: 1,
+    limit: 20,
+    classId: 1,
+    search: 'SV',
+    status: true,
+    sortBy: 'fullName',
+    sortOrder: 'ASC'
+  });
+  
+  console.log('Total:', result.pagination.total);
+  console.log('Students:', result.data);
+  
+  // Hiển thị danh sách
+  displayStudentsList(result.data);
+  displayPagination(result.pagination);
+} catch (error) {
+  console.error('Error:', error);
+  showNotification('Không thể tải danh sách học sinh', 'error');
+}
+
+// Ví dụ 3: Cập nhật học sinh
+try {
+  const result = await updateStudent(1, {
+    gpa: 3.7,
+    creditsEarned: 130,
+    academicStatus: 'Active',
+    status: true
+  });
+  
+  console.log('Success:', result.message);
+  showNotification(result.message, 'success');
+  
+  // Refresh danh sách
+  await refreshStudentsList();
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+
+// Ví dụ 4: Xóa học sinh
+try {
+  const confirmed = await confirmDialog(
+    'Bạn có chắc chắn muốn xóa học sinh này?'
+  );
+  
+  if (confirmed) {
+    const result = await deleteStudent(1);
+    console.log('Success:', result.message);
+    showNotification(result.message, 'success');
+    
+    // Refresh danh sách
+    await refreshStudentsList();
+  }
+} catch (error) {
+  console.error('Error:', error);
+  showNotification(error.message, 'error');
+}
+```
+
+### React Hook Example
+
+```typescript
+import { useState, useEffect } from 'react';
+
+interface UseStudentsOptions {
+  page?: number;
+  limit?: number;
+  classId?: number;
+  majorId?: number;
+  departmentId?: number;
+  facultyId?: number;
+  search?: string;
+  academicStatus?: string;
+  admissionYear?: number;
+  status?: boolean;
+}
+
+export function useStudents(options: UseStudentsOptions = {}) {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 1
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStudents = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const result = await getStudents(options);
+      setStudents(result.data);
+      setPagination(result.pagination);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStudents();
+  }, [JSON.stringify(options)]);
+
+  return {
+    students,
+    pagination,
+    loading,
+    error,
+    refetch: fetchStudents
+  };
+}
+
+// Usage trong component
+function StudentsList() {
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 10,
+    search: '',
+    classId: undefined as number | undefined
+  });
+
+  const { students, pagination, loading, error, refetch } = useStudents(filters);
+
+  if (loading) return <div>Đang tải...</div>;
+  if (error) return <div>Lỗi: {error}</div>;
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="Tìm kiếm..."
+        value={filters.search}
+        onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
+      />
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Mã SV</th>
+            <th>Họ tên</th>
+            <th>Email</th>
+            <th>Lớp</th>
+            <th>GPA</th>
+            <th>Trạng thái</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          {students.map((student) => (
+            <tr key={student.id}>
+              <td>{student.studentCode}</td>
+              <td>{student.user.fullName}</td>
+              <td>{student.user.email}</td>
+              <td>{student.class.className}</td>
+              <td>{student.gpa || '-'}</td>
+              <td>{student.academicStatus}</td>
+              <td>
+                <button onClick={() => handleEdit(student.id)}>Sửa</button>
+                <button onClick={() => handleDelete(student.id)}>Xóa</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      <Pagination
+        current={pagination.page}
+        total={pagination.totalPages}
+        onChange={(page) => setFilters({ ...filters, page })}
+      />
+    </div>
+  );
+}
+```
+
+---
+
 ## Tổng kết
 
 ### Các API endpoints cho Giáo Vụ:
@@ -2454,6 +3678,14 @@ function ClassesList() {
 11. **DELETE** `/academic-staff/classes/:id` - Xóa lớp học
 12. **GET** `/academic-staff/majors/:majorId/classes` - Lấy lớp học theo chuyên ngành
 
+#### Quản lý Học sinh:
+13. **POST** `/academic-staff/students` - Tạo thông tin học sinh
+14. **GET** `/academic-staff/students` - Lấy danh sách học sinh (có filters, search, pagination)
+15. **GET** `/academic-staff/students/:id` - Lấy chi tiết học sinh
+16. **PUT** `/academic-staff/students/:id` - Cập nhật thông tin học sinh
+17. **DELETE** `/academic-staff/students/:id` - Xóa học sinh
+18. **GET** `/academic-staff/classes/:classId/students` - Lấy học sinh theo lớp
+
 ### Lưu ý chung:
 
 - Tất cả các API đều yêu cầu **JWT Authentication**
@@ -2462,6 +3694,7 @@ function ClassesList() {
 - Các lỗi được trả về với HTTP status code phù hợp và message rõ ràng
 - Khi xóa giảng viên, hệ thống sẽ kiểm tra ràng buộc trước khi cho phép xóa
 - Khi xóa lớp học, hệ thống sẽ kiểm tra ràng buộc (không cho xóa lớp có sinh viên)
+- Khi xóa học sinh, hệ thống sẽ kiểm tra ràng buộc (không cho xóa học sinh có đề tài đăng ký hoặc đang làm)
 
 ### Error Handling
 
@@ -2489,5 +3722,5 @@ Tất cả các API đều có thể trả về các lỗi sau:
 
 **Tài liệu này được cập nhật lần cuối:** 2024-01-20
 
-**Phiên bản:** 2.0 (Đã thêm quản lý lớp học)
+**Phiên bản:** 3.0 (Đã thêm quản lý lớp học và học sinh)
 

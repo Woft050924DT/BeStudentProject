@@ -22,6 +22,10 @@ import { GetInstructorsDto } from '../admin/dto/get-instructors.dto';
 import { CreateClassDto } from '../admin/dto/create-class.dto';
 import { UpdateClassDto } from '../admin/dto/update-class.dto';
 import { GetClassesDto } from '../admin/dto/get-classes.dto';
+import { StudentService } from '../student/student.service';
+import { CreateStudentDto } from '../admin/dto/create-student.dto';
+import { UpdateStudentDto } from '../admin/dto/update-student.dto';
+import { GetStudentsDto } from '../admin/dto/get-students.dto';
 
 @Controller('academic-staff')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,6 +34,7 @@ export class AcademicStaffController {
   constructor(
     private readonly instructorService: InstructorService,
     private readonly organizationService: OrganizationService,
+    private readonly studentService: StudentService,
   ) {}
 
   // ================================
@@ -482,7 +487,258 @@ export class AcademicStaffController {
             email: classEntity.advisor.user.email,
           } : null,
         } : null,
-        status: classEntity.status,
+      status: classEntity.status,
+    })),
+  };
+}
+
+  // ================================
+  // QUẢN LÝ HỌC SINH
+  // ================================
+
+  // Tạo thông tin học sinh mới
+  @Post('students')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async createStudent(@Body() createStudentDto: CreateStudentDto) {
+    const student = await this.studentService.createStudent(createStudentDto);
+    return {
+      message: 'Tạo thông tin học sinh thành công',
+      student: {
+        id: student.id,
+        userId: student.userId,
+        studentCode: student.studentCode,
+        classId: student.classId,
+        admissionYear: student.admissionYear,
+        academicStatus: student.academicStatus,
+        status: student.status,
+      },
+    };
+  }
+
+  // Lấy danh sách học sinh với filters, search, pagination
+  @Get('students')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async getStudents(@Query() query: GetStudentsDto) {
+    // Nếu có query params thì dùng filter, không thì lấy tất cả
+    if (query.page || query.classId || query.majorId || query.departmentId || 
+        query.facultyId || query.search || query.academicStatus || 
+        query.admissionYear || query.status !== undefined) {
+      const result = await this.studentService.getStudentsWithFilters(query);
+      return {
+        message: 'Lấy danh sách học sinh thành công',
+        data: result.data.map(student => ({
+          id: student.id,
+          userId: student.userId,
+          studentCode: student.studentCode,
+          user: student.user ? {
+            id: student.user.id,
+            username: student.user.username,
+            email: student.user.email,
+            fullName: student.user.fullName,
+            phone: student.user.phone,
+            gender: student.user.gender,
+            dateOfBirth: student.user.dateOfBirth,
+            avatar: student.user.avatar,
+          } : null,
+          class: student.classEntity ? {
+            id: student.classEntity.id,
+            classCode: student.classEntity.classCode,
+            className: student.classEntity.className,
+            major: student.classEntity.major ? {
+              id: student.classEntity.major.id,
+              majorCode: student.classEntity.major.majorCode,
+              majorName: student.classEntity.major.majorName,
+              department: student.classEntity.major.department ? {
+                id: student.classEntity.major.department.id,
+                departmentCode: student.classEntity.major.department.departmentCode,
+                departmentName: student.classEntity.major.department.departmentName,
+                faculty: student.classEntity.major.department.faculty ? {
+                  id: student.classEntity.major.department.faculty.id,
+                  facultyCode: student.classEntity.major.department.faculty.facultyCode,
+                  facultyName: student.classEntity.major.department.faculty.facultyName,
+                } : null,
+              } : null,
+            } : null,
+          } : null,
+          admissionYear: student.admissionYear,
+          gpa: student.gpa,
+          creditsEarned: student.creditsEarned,
+          academicStatus: student.academicStatus,
+          cvFile: student.cvFile,
+          status: student.status,
+          createdAt: student.createdAt,
+        })),
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: result.totalPages,
+        },
+      };
+    }
+
+    // Nếu không có query params, lấy tất cả
+    const students = await this.studentService.getAllStudents();
+    return {
+      message: 'Lấy danh sách học sinh thành công',
+      data: students.map(student => ({
+        id: student.id,
+        userId: student.userId,
+        studentCode: student.studentCode,
+        user: student.user ? {
+          id: student.user.id,
+          username: student.user.username,
+          email: student.user.email,
+          fullName: student.user.fullName,
+          phone: student.user.phone,
+          gender: student.user.gender,
+          dateOfBirth: student.user.dateOfBirth,
+          avatar: student.user.avatar,
+        } : null,
+        class: student.classEntity ? {
+          id: student.classEntity.id,
+          classCode: student.classEntity.classCode,
+          className: student.classEntity.className,
+          major: student.classEntity.major ? {
+            id: student.classEntity.major.id,
+            majorCode: student.classEntity.major.majorCode,
+            majorName: student.classEntity.major.majorName,
+            department: student.classEntity.major.department ? {
+              id: student.classEntity.major.department.id,
+              departmentCode: student.classEntity.major.department.departmentCode,
+              departmentName: student.classEntity.major.department.departmentName,
+              faculty: student.classEntity.major.department.faculty ? {
+                id: student.classEntity.major.department.faculty.id,
+                facultyCode: student.classEntity.major.department.faculty.facultyCode,
+                facultyName: student.classEntity.major.department.faculty.facultyName,
+              } : null,
+            } : null,
+          } : null,
+        } : null,
+        admissionYear: student.admissionYear,
+        gpa: student.gpa,
+        creditsEarned: student.creditsEarned,
+        academicStatus: student.academicStatus,
+        cvFile: student.cvFile,
+        status: student.status,
+        createdAt: student.createdAt,
+      })),
+      pagination: {
+        total: students.length,
+        page: 1,
+        limit: students.length,
+        totalPages: 1,
+      },
+    };
+  }
+
+  // Lấy chi tiết học sinh theo ID
+  @Get('students/:id')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async getStudentById(@Param('id', ParseIntPipe) id: number) {
+    const student = await this.studentService.getStudentById(id);
+    return {
+      message: 'Lấy thông tin học sinh thành công',
+      student: {
+        id: student.id,
+        userId: student.userId,
+        studentCode: student.studentCode,
+        user: student.user ? {
+          id: student.user.id,
+          username: student.user.username,
+          email: student.user.email,
+          fullName: student.user.fullName,
+          phone: student.user.phone,
+          gender: student.user.gender,
+          dateOfBirth: student.user.dateOfBirth,
+          address: student.user.address,
+          avatar: student.user.avatar,
+          status: student.user.status,
+        } : null,
+        class: student.classEntity ? {
+          id: student.classEntity.id,
+          classCode: student.classEntity.classCode,
+          className: student.classEntity.className,
+          major: student.classEntity.major ? {
+            id: student.classEntity.major.id,
+            majorCode: student.classEntity.major.majorCode,
+            majorName: student.classEntity.major.majorName,
+            department: student.classEntity.major.department ? {
+              id: student.classEntity.major.department.id,
+              departmentCode: student.classEntity.major.department.departmentCode,
+              departmentName: student.classEntity.major.department.departmentName,
+            } : null,
+          } : null,
+        } : null,
+        admissionYear: student.admissionYear,
+        gpa: student.gpa,
+        creditsEarned: student.creditsEarned,
+        academicStatus: student.academicStatus,
+        cvFile: student.cvFile,
+        status: student.status,
+        createdAt: student.createdAt,
+        updatedAt: student.updatedAt,
+      },
+    };
+  }
+
+  // Cập nhật thông tin học sinh
+  @Put('students/:id')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async updateStudent(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateStudentDto: UpdateStudentDto,
+  ) {
+    const student = await this.studentService.updateStudent(id, updateStudentDto);
+    return {
+      message: 'Cập nhật thông tin học sinh thành công',
+      student: {
+        id: student.id,
+        userId: student.userId,
+        studentCode: student.studentCode,
+        classId: student.classId,
+        admissionYear: student.admissionYear,
+        gpa: student.gpa,
+        creditsEarned: student.creditsEarned,
+        academicStatus: student.academicStatus,
+        cvFile: student.cvFile,
+        status: student.status,
+        updatedAt: student.updatedAt,
+      },
+    };
+  }
+
+  // Xóa học sinh
+  @Delete('students/:id')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async deleteStudent(@Param('id', ParseIntPipe) id: number) {
+    await this.studentService.deleteStudent(id);
+    return {
+      message: 'Xóa học sinh thành công',
+    };
+  }
+
+  // Lấy học sinh theo lớp
+  @Get('classes/:classId/students')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async getStudentsByClass(@Param('classId', ParseIntPipe) classId: number) {
+    const students = await this.studentService.getStudentsByClass(classId);
+    return {
+      message: 'Lấy danh sách học sinh theo lớp thành công',
+      students: students.map(student => ({
+        id: student.id,
+        studentCode: student.studentCode,
+        user: student.user ? {
+          id: student.user.id,
+          fullName: student.user.fullName,
+          email: student.user.email,
+          phone: student.user.phone,
+        } : null,
+        admissionYear: student.admissionYear,
+        gpa: student.gpa,
+        creditsEarned: student.creditsEarned,
+        academicStatus: student.academicStatus,
+        status: student.status,
       })),
     };
   }
