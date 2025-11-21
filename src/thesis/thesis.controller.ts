@@ -17,7 +17,7 @@ import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { ThesisService } from './thesis.service';
 import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
-import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto } from './dto/proposed-topic.dto';
+import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
@@ -143,26 +143,32 @@ export class ThesisController {
     return this.thesisService.createProposedTopic(instructorId, createDto);
   }
 
+  // Lấy danh sách đề tài mà giáo viên đã tạo trong đợt đề tài (chỉ giảng viên)
+  @Get('my-proposed-topics')
+  @Roles(UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async getMyProposedTopics(@Request() req: AuthenticatedRequest, @Query() query: GetMyProposedTopicsDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin giảng viên. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.getMyProposedTopics(instructorId, query);
+  }
+
   // Cập nhật đề tài đề xuất (chỉ giảng viên)
   @Put('proposed-topics/:id')
   @Roles(UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  updateProposedTopic(
+  async updateProposedTopic(
     @Request() req: AuthenticatedRequest, 
     @Param('id', ParseIntPipe) id: number, 
     @Body() updateDto: UpdateProposedTopicDto
   ) {
     const instructorId = req.user.instructorId;
     if (!instructorId) {
-      throw new Error('Instructor ID not found');
+      throw new BadRequestException('Không tìm thấy thông tin giảng viên. Vui lòng đăng nhập lại.');
     }
-    // TODO: Implement update proposed topic - will use id and updateDto
-    void id;
-    void updateDto;
-    return {
-      success: true,
-      message: 'Cập nhật đề tài đề xuất thành công'
-    };
+    return this.thesisService.updateProposedTopic(instructorId, id, updateDto);
   }
 
   // ==================== ADMIN & TRƯỞNG BỘ MÔN ====================

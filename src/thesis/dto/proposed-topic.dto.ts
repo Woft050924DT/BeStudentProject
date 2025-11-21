@@ -75,6 +75,20 @@ export class UpdateProposedTopicDto {
   @IsOptional()
   @IsBoolean()
   status?: boolean;
+
+  // Các trường này được frontend gửi nhưng không được cập nhật (chỉ để tránh lỗi validation)
+  @IsOptional()
+  @IsString()
+  topicCode?: string; // Không được phép thay đổi sau khi tạo
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxStudents?: number; // Trường này không tồn tại trong entity, chỉ để tránh lỗi validation
+
+  @IsOptional()
+  @IsString()
+  notes?: string; // Trường này không tồn tại trong entity, chỉ để tránh lỗi validation
 }
 
 export class GetProposedTopicsDto {
@@ -110,6 +124,40 @@ export class GetProposedTopicsDto {
   @IsOptional()
   @IsString()
   sortBy?: string = 'createdAt'; // createdAt, topicTitle, instructorName
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'ASC' | 'DESC' = 'DESC';
+}
+
+export class GetMyProposedTopicsDto {
+  @IsNotEmpty()
+  @Type(() => Number)
+  @IsNumber()
+  thesisRoundId: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  isTaken?: boolean;
+
+  @IsOptional()
+  @IsString()
+  search?: string; // Tìm kiếm theo tiêu đề hoặc mô tả
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number = 10;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: string = 'createdAt'; // createdAt, topicTitle
 
   @IsOptional()
   @IsString()

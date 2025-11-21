@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
-import { CreateProposedTopicDto, GetProposedTopicsDto } from './dto/proposed-topic.dto';
+import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
 import { TopicRegistration } from './entities/topic-registration.entity';
@@ -620,6 +620,135 @@ export class ThesisService {
       success: true,
       message: 'Tạo đề tài đề xuất thành công',
       data: savedTopic
+    };
+  }
+
+  // Lấy danh sách đề tài mà giáo viên đã tạo trong đợt đề tài
+  async getMyProposedTopics(instructorId: number, query: GetMyProposedTopicsDto) {
+    const { 
+      thesisRoundId, 
+      isTaken, 
+      search, 
+      page = 1, 
+      limit = 10, 
+      sortBy = 'createdAt', 
+      sortOrder = 'DESC' 
+    } = query;
+
+    // Kiểm tra đợt luận văn tồn tại
+    const thesisRound = await this.thesisRoundRepository.findOne({
+      where: { id: thesisRoundId }
+    });
+
+    if (!thesisRound) {
+      throw new NotFoundException('Đợt luận văn không tồn tại');
+    }
+
+    // Xây dựng điều kiện where
+    const queryBuilder = this.proposedTopicRepository
+      .createQueryBuilder('proposedTopic')
+      .leftJoinAndSelect('proposedTopic.thesisRound', 'thesisRound')
+      .leftJoinAndSelect('proposedTopic.topicRegistrations', 'topicRegistrations')
+      .where('proposedTopic.instructorId = :instructorId', { instructorId })
+      .andWhere('proposedTopic.thesisRoundId = :thesisRoundId', { thesisRoundId });
+
+    // Filter theo isTaken
+    if (isTaken !== undefined) {
+      queryBuilder.andWhere('proposedTopic.isTaken = :isTaken', { isTaken });
+    }
+
+    // Tìm kiếm theo tiêu đề hoặc mô tả
+    if (search) {
+      queryBuilder.andWhere(
+        '(proposedTopic.topicTitle ILIKE :search OR proposedTopic.topicDescription ILIKE :search OR proposedTopic.topicCode ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    // Sắp xếp
+    const validSortFields = ['createdAt', 'topicTitle', 'updatedAt', 'topicCode'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const validSortOrder = sortOrder === 'ASC' || sortOrder === 'DESC' ? sortOrder : 'DESC';
+    
+    queryBuilder.orderBy(`proposedTopic.${sortField}`, validSortOrder);
+
+    // Phân trang
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    // Thực hiện query
+    const [proposedTopics, total] = await queryBuilder.getManyAndCount();
+
+    // Tính toán thông tin phân trang
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    return {
+      success: true,
+      data: proposedTopics.map(topic => ({
+        id: topic.id,
+        topicCode: topic.topicCode,
+        topicTitle: topic.topicTitle,
+        topicDescription: topic.topicDescription,
+        objectives: topic.objectives,
+        studentRequirements: topic.studentRequirements,
+        technologiesUsed: topic.technologiesUsed,
+        topicReferences: topic.topicReferences,
+        isTaken: topic.isTaken,
+        status: topic.status,
+        registrationCount: topic.topicRegistrations?.length || 0,
+        thesisRound: {
+          id: topic.thesisRound.id,
+          roundName: topic.thesisRound.roundName,
+          roundCode: topic.thesisRound.roundCode,
+          status: topic.thesisRound.status
+        },
+        createdAt: topic.createdAt,
+        updatedAt: topic.updatedAt
+      })),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: limit,
+        hasNextPage,
+        hasPrevPage
+      }
+    };
+  }
+
+  // Cập nhật đề tài đề xuất
+  async updateProposedTopic(instructorId: number, topicId: number, updateDto: UpdateProposedTopicDto) {
+    // Loại bỏ các trường không được phép cập nhật (topicCode, maxStudents, notes)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { topicCode, maxStudents, notes, ...updateData } = updateDto;
+
+    // Kiểm tra đề tài tồn tại và thuộc quyền quản lý của giảng viên
+    const proposedTopic = await this.proposedTopicRepository.findOne({
+      where: { 
+        id: topicId,
+        instructorId 
+      }
+    });
+
+    if (!proposedTopic) {
+      throw new NotFoundException('Đề tài không tồn tại hoặc không thuộc quyền quản lý của bạn');
+    }
+
+    // Cập nhật đề tài
+    await this.proposedTopicRepository.update(topicId, updateData);
+
+    // Lấy đề tài đã cập nhật
+    const updatedTopic = await this.proposedTopicRepository.findOne({
+      where: { id: topicId },
+      relations: ['thesisRound', 'instructor']
+    });
+
+    return {
+      success: true,
+      message: 'Cập nhật đề tài đề xuất thành công',
+      data: updatedTopic
     };
   }
 
