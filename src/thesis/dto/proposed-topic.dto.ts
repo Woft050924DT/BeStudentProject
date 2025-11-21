@@ -54,10 +54,19 @@ export class CreateProposedTopicDto {
 
 export class UpdateProposedTopicDto {
   @IsNumber()
-  topicId: number; // ID đề tài, bắt buộc
+  topicId: number; // ID đề tài cần cập nhật (bắt buộc)
 
   @IsNumber()
-  instructorId: number; // ID giảng viên, bắt buộc
+  instructorId: number; // ID giảng viên đang cập nhật (bắt buộc)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  topicCode?: string; // Mã đề tài
+
+  @IsOptional()
+  @IsNumber()
+  thesisRoundId?: number; // ID đợt đồ án
 
   @IsOptional()
   @IsString()
