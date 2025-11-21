@@ -1409,26 +1409,4 @@ export class ThesisService {
     const entities = this.proposedTopicRepository.create(topics);
     return this.proposedTopicRepository.save(entities); // lưu tất cả cùng lúc
   }
-  // Hàm tìm kiếm
-  async searchProposedTopics(searchDto: SearchProposedTopicDto) {
-    const { query } = searchDto;
-
-    if (!query) {
-      // Nếu không có từ khóa, trả về tất cả
-      return this.proposedTopicRepository.find();
-    }
-
-    // Tìm kiếm nhiều trường cùng lúc
-    return this.proposedTopicRepository.find({
-      where: [
-        { topicCode: ILike(`%${query}%`) },
-        { topicTitle: ILike(`%${query}%`) },
-        { topicDescription: ILike(`%${query}%`) },
-        { objectives: ILike(`%${query}%`) },
-        { studentRequirements: ILike(`%${query}%`) },
-        { technologiesUsed: ILike(`%${query}%`) },
-        { topicReferences: ILike(`%${query}%`) },
-      ],
-    });
-  }
 }

@@ -394,8 +394,4 @@ export class ThesisController {
 
     return this.thesisService.createManyProposedTopics(data, instructorId);
   }
-  @Get('proposed-topics/search')
-  async searchProposedTopics(@Query() searchDto: SearchProposedTopicDto) {
-    return this.thesisService.searchProposedTopics(searchDto);
-  }
 }
