@@ -47,7 +47,19 @@ export class ThesisService {
 
   // Đăng ký đề tài cho sinh viên
   async registerTopic(studentId: number, registerTopicDto: RegisterTopicDto) {
-    const { thesisRoundId, instructorId, proposedTopicId, selfProposedTitle, selfProposedDescription, selectionReason } = registerTopicDto;
+    const { 
+      thesisRoundId, 
+      instructorId, 
+      studentCode,
+      thesisRoundName,
+      topicTitle,
+      classId,
+      classCode,
+      proposedTopicId, 
+      selfProposedTitle, 
+      selfProposedDescription, 
+      selectionReason 
+    } = registerTopicDto;
 
     // Kiểm tra sinh viên tồn tại
     const student = await this.studentRepository.findOne({
@@ -59,6 +71,20 @@ export class ThesisService {
       throw new NotFoundException('Sinh viên không tồn tại');
     }
 
+    // Validate mã sinh viên nếu có trong request
+    if (studentCode && student.studentCode !== studentCode) {
+      throw new BadRequestException('Mã sinh viên không khớp với tài khoản đăng nhập');
+    }
+
+    // Validate lớp nếu có trong request
+    if (classId && student.classEntity && student.classEntity.id !== classId) {
+      throw new BadRequestException('Lớp không khớp với thông tin sinh viên');
+    }
+
+    if (classCode && student.classEntity && student.classEntity.classCode !== classCode) {
+      throw new BadRequestException('Mã lớp không khớp với thông tin sinh viên');
+    }
+
     // Kiểm tra đợt luận văn tồn tại và đang mở đăng ký
     const thesisRound = await this.thesisRoundRepository.findOne({
       where: { id: thesisRoundId }
@@ -66,6 +92,11 @@ export class ThesisService {
 
     if (!thesisRound) {
       throw new NotFoundException('Đợt luận văn không tồn tại');
+    }
+
+    // Validate tên đợt luận văn nếu có trong request
+    if (thesisRoundName && thesisRound.roundName !== thesisRoundName) {
+      throw new BadRequestException('Tên đợt luận văn không khớp');
     }
 
     // Kiểm tra status: chỉ cho phép đăng ký khi status là 'Preparing' hoặc 'In Progress'
@@ -141,8 +172,18 @@ export class ThesisService {
         throw new BadRequestException('Giảng viên không phải người đề xuất đề tài này');
       }
 
+      // Validate tên đề tài nếu có trong request
+      if (topicTitle && proposedTopic.topicTitle !== topicTitle) {
+        throw new BadRequestException('Tên đề tài không khớp với đề tài được chọn');
+      }
+
       // Cập nhật trạng thái đề tài đã được chọn
       await this.proposedTopicRepository.update(proposedTopicId, { isTaken: true });
+    } else if (selfProposedTitle) {
+      // Validate tên đề tài tự đề xuất nếu có trong request
+      if (topicTitle && selfProposedTitle !== topicTitle) {
+        throw new BadRequestException('Tên đề tài không khớp với đề tài tự đề xuất');
+      }
     }
 
     // Tạo đăng ký đề tài
@@ -181,79 +222,131 @@ export class ThesisService {
       console.error('Error sending socket notification:', socketError);
     }
 
+    // Lấy lại đăng ký với đầy đủ relations để trả về
+    const registrationWithRelations = await this.topicRegistrationRepository.findOne({
+      where: { id: savedRegistration.id },
+      relations: [
+        'student',
+        'student.user',
+        'student.classEntity',
+        'thesisRound',
+        'proposedTopic',
+        'instructor',
+        'instructor.user'
+      ]
+    });
+
+    if (!registrationWithRelations) {
+      throw new NotFoundException('Không tìm thấy đăng ký vừa tạo');
+    }
+
     return {
       success: true,
       message: 'Đăng ký đề tài thành công',
-      data: savedRegistration
+      data: {
+        id: registrationWithRelations.id,
+        student: {
+          id: registrationWithRelations.student?.id || null,
+          studentCode: registrationWithRelations.student?.studentCode || null,
+          fullName: registrationWithRelations.student?.user?.fullName || null,
+          email: registrationWithRelations.student?.user?.email || null,
+          phone: registrationWithRelations.student?.user?.phone || null,
+          class: registrationWithRelations.student?.classEntity ? {
+            id: registrationWithRelations.student.classEntity.id,
+            className: registrationWithRelations.student.classEntity.className,
+            classCode: registrationWithRelations.student.classEntity.classCode
+          } : null
+        },
+        thesisRound: registrationWithRelations.thesisRound ? {
+          id: registrationWithRelations.thesisRound.id,
+          roundName: registrationWithRelations.thesisRound.roundName,
+          roundCode: registrationWithRelations.thesisRound.roundCode,
+          status: registrationWithRelations.thesisRound.status
+        } : null,
+        proposedTopic: registrationWithRelations.proposedTopic ? {
+          id: registrationWithRelations.proposedTopic.id,
+          topicTitle: registrationWithRelations.proposedTopic.topicTitle,
+          topicCode: registrationWithRelations.proposedTopic.topicCode
+        } : null,
+        selfProposedTitle: registrationWithRelations.selfProposedTitle,
+        selfProposedDescription: registrationWithRelations.selfProposedDescription,
+        selectionReason: registrationWithRelations.selectionReason,
+        instructorStatus: registrationWithRelations.instructorStatus,
+        headStatus: registrationWithRelations.headStatus,
+        registrationDate: registrationWithRelations.registrationDate
+      }
     };
   }
 
   async getStudentRegistrations(instructorId: number, query: GetStudentRegistrationsDto) {
     const { thesisRoundId, status } = query;
 
-    const whereCondition: Record<string, any> = {
-      instructorId
-    };
+    const queryBuilder = this.topicRegistrationRepository
+      .createQueryBuilder('registration')
+      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('student.user', 'user')
+      .leftJoinAndSelect('student.classEntity', 'class')
+      .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
+      .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
+      .where('registration.instructorId = :instructorId', { instructorId });
 
     if (thesisRoundId) {
-      whereCondition.thesisRoundId = thesisRoundId;
+      queryBuilder.andWhere('registration.thesisRoundId = :thesisRoundId', { thesisRoundId });
     }
 
     if (status) {
-      whereCondition.instructorStatus = status;
+      queryBuilder.andWhere('registration.instructorStatus = :status', { status });
     }
 
-    const registrations = await this.topicRegistrationRepository.find({
-      where: whereCondition,
-      relations: [
-        'student',
-        'student.user',
-        'student.classEntity',
-        'thesisRound',
-        'proposedTopic'
-      ],
-      order: {
-        registrationDate: 'DESC'
-      }
-    });
+    queryBuilder.orderBy('registration.registrationDate', 'DESC');
+
+    const registrations = await queryBuilder.getMany();
 
     return {
       success: true,
-      data: registrations.map(registration => ({
-        id: registration.id,
-        student: {
-          id: registration.student.id,
-          studentCode: registration.student.studentCode,
-          fullName: registration.student.user.fullName,
-          email: registration.student.user.email,
-          phone: registration.student.user.phone,
-          class: {
-            id: registration.student.classEntity.id,
-            className: registration.student.classEntity.className,
-            classCode: registration.student.classEntity.classCode
-          }
-        },
-        thesisRound: {
-          id: registration.thesisRound.id,
-          roundName: registration.thesisRound.roundName,
-          roundCode: registration.thesisRound.roundCode
-        },
-        proposedTopic: registration.proposedTopic ? {
-          id: registration.proposedTopic.id,
-          topicTitle: registration.proposedTopic.topicTitle,
-          topicCode: registration.proposedTopic.topicCode
-        } : null,
-        selfProposedTitle: registration.selfProposedTitle,
-        selfProposedDescription: registration.selfProposedDescription,
-        selectionReason: registration.selectionReason,
-        instructorStatus: registration.instructorStatus,
-        headStatus: registration.headStatus,
-        instructorRejectionReason: registration.instructorRejectionReason,
-        headRejectionReason: registration.headRejectionReason,
-        registrationDate: registration.registrationDate,
-        instructorApprovalDate: registration.instructorApprovalDate,
-        headApprovalDate: registration.headApprovalDate
-      }))
+      data: registrations.map(registration => {
+        // Lấy tên đề tài (từ proposedTopic hoặc selfProposedTitle)
+        const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
+        
+        return {
+          id: registration.id,
+          student: {
+            id: registration.student?.id || null,
+            studentCode: registration.student?.studentCode || null,
+            fullName: registration.student?.user?.fullName || null,
+            email: registration.student?.user?.email || null,
+            phone: registration.student?.user?.phone || null,
+            class: registration.student?.classEntity ? {
+              id: registration.student.classEntity.id,
+              className: registration.student.classEntity.className,
+              classCode: registration.student.classEntity.classCode
+            } : null
+          },
+          thesisRound: registration.thesisRound ? {
+            id: registration.thesisRound.id,
+            roundName: registration.thesisRound.roundName,
+            roundCode: registration.thesisRound.roundCode,
+            status: registration.thesisRound.status
+          } : null,
+          proposedTopic: registration.proposedTopic ? {
+            id: registration.proposedTopic.id,
+            topicTitle: registration.proposedTopic.topicTitle,
+            topicCode: registration.proposedTopic.topicCode
+          } : null,
+          selfProposedTitle: registration.selfProposedTitle,
+          selfProposedDescription: registration.selfProposedDescription,
+          // Thêm topicTitle để frontend dễ hiển thị
+          topicTitle: topicTitle,
+          selectionReason: registration.selectionReason,
+          instructorStatus: registration.instructorStatus,
+          headStatus: registration.headStatus,
+          instructorRejectionReason: registration.instructorRejectionReason,
+          headRejectionReason: registration.headRejectionReason,
+          registrationDate: registration.registrationDate,
+          instructorApprovalDate: registration.instructorApprovalDate,
+          headApprovalDate: registration.headApprovalDate
+        };
+      })
     };
   }
 

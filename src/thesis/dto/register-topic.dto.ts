@@ -11,6 +11,35 @@ export class RegisterTopicDto {
   instructorId: number;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  studentCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  thesisRoundName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  topicTitle?: string;
+
+  @IsOptional()
+  @IsNumber()
+  classId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  classCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  status?: string;
+
+  @IsOptional()
   @IsNumber()
   proposedTopicId?: number;
 
