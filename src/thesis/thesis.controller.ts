@@ -16,7 +16,7 @@ import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { ThesisService } from './thesis.service';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -264,6 +264,32 @@ export class ThesisController {
     const userId = req.user.id;
     const userRole = req.user.role;
     return this.thesisService.removeInstructorFromRound(roundId, instructorId, userId, userRole);
+  }
+
+  // ==================== TRƯỞNG BỘ MÔN ====================
+
+  // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
+  @Get('head/pending-registrations')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async getRegistrationsForHeadApproval(@Request() req: AuthenticatedRequest, @Query() query: GetRegistrationsForHeadApprovalDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.getRegistrationsForHeadApprovalByInstructorId(instructorId, query);
+  }
+
+  // Trưởng bộ môn phê duyệt/từ chối đăng ký đề tài
+  @Put('head/approve-registration')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async approveTopicRegistrationByHead(@Request() req: AuthenticatedRequest, @Body() approveDto: ApproveTopicRegistrationByHeadDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.approveTopicRegistrationByHead(instructorId, approveDto);
   }
 
   // Lấy thống kê đăng ký đề tài (chỉ admin)

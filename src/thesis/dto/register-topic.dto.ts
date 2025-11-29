@@ -93,3 +93,38 @@ export class GetMyRegistrationsDto {
   @IsNumber()
   limit?: number = 10;
 }
+
+export class ApproveTopicRegistrationByHeadDto {
+  @IsNotEmpty()
+  @IsNumber()
+  registrationId: number;
+
+  @IsNotEmpty()
+  @IsBoolean()
+  approved: boolean;
+
+  @IsOptional()
+  @IsString()
+  rejectionReason?: string;
+}
+
+export class GetRegistrationsForHeadApprovalDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  thesisRoundId?: number;
+
+  @IsOptional()
+  @IsString()
+  status?: string; // Pending, Approved, Rejected (chỉ filter theo headStatus)
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number = 10;
+}

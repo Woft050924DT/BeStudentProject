@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto } from './dto/register-topic.dto';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -358,7 +358,7 @@ export class ThesisService {
         id: registrationId,
         instructorId 
       },
-      relations: ['student', 'student.user', 'thesisRound']
+      relations: ['student', 'student.user', 'thesisRound', 'thesisRound.department', 'thesisRound.department.head', 'thesisRound.department.head.user', 'instructor', 'instructor.user', 'proposedTopic']
     });
 
     if (!registration) {
@@ -369,9 +369,10 @@ export class ThesisService {
       throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
     }
 
-    const updateData: Record<string, any> = {
+    const approvalDate = new Date();
+    const updateData: Partial<TopicRegistration> = {
       instructorStatus: approved ? 'Approved' : 'Rejected',
-      instructorApprovalDate: new Date()
+      instructorApprovalDate: approvalDate
     };
 
     if (!approved && rejectionReason) {
@@ -381,25 +382,56 @@ export class ThesisService {
     await this.topicRegistrationRepository.update(registrationId, updateData);
 
     // Gửi thông báo real-time cho sinh viên
-    await this.socketGateway.sendToUser(
-      registration.student.userId.toString(),
-      'topic_registration_updated',
-      {
-        registrationId: registration.id,
-        status: approved ? 'Approved' : 'Rejected',
-        message: approved ? 
-          'Đăng ký đề tài của bạn đã được phê duyệt' : 
-          'Đăng ký đề tài của bạn đã bị từ chối',
-        rejectionReason: rejectionReason
+    try {
+      if (registration.student?.user?.id) {
+        await this.socketGateway.sendToUser(
+          registration.student.user.id.toString(),
+          'topic_registration_updated',
+          {
+            registrationId: registration.id,
+            status: approved ? 'Approved' : 'Rejected',
+            message: approved ? 
+              'Đăng ký đề tài của bạn đã được giáo viên hướng dẫn phê duyệt, đang chờ trưởng bộ môn phê duyệt' : 
+              'Đăng ký đề tài của bạn đã bị từ chối',
+            rejectionReason: rejectionReason
+          }
+        );
       }
-    );
+    } catch (socketError) {
+      console.error('Error sending socket notification to student:', socketError);
+    }
+
+    // Nếu giáo viên phê duyệt, gửi thông báo cho trưởng bộ môn
+    if (approved && registration.thesisRound?.department?.head?.user?.id) {
+      try {
+        const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || 'N/A';
+        
+        await this.socketGateway.sendToUser(
+          registration.thesisRound.department.head.user.id.toString(),
+          'new_registration_for_approval',
+          {
+            registrationId: registration.id,
+            studentName: registration.student?.user?.fullName || 'N/A',
+            studentCode: registration.student?.studentCode || 'N/A',
+            instructorName: registration.instructor?.user?.fullName || 'N/A',
+            topicTitle: topicTitle,
+            registrationDate: registration.registrationDate,
+            instructorApprovalDate: approvalDate,
+            message: 'Có đăng ký đề tài mới đã được giáo viên hướng dẫn phê duyệt, cần bạn phê duyệt'
+          }
+        );
+      } catch (socketError) {
+        console.error('Error sending socket notification to head of department:', socketError);
+      }
+    }
 
     return {
       success: true,
-      message: approved ? 'Phê duyệt đăng ký thành công' : 'Từ chối đăng ký thành công',
+      message: approved ? 'Phê duyệt đăng ký thành công. Đăng ký đã được gửi lên trưởng bộ môn để phê duyệt' : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected'
+        status: approved ? 'Approved' : 'Rejected',
+        nextStep: approved ? 'Chờ trưởng bộ môn phê duyệt' : null
       }
     };
   }
@@ -1370,5 +1402,251 @@ export class ThesisService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Lỗi khi lấy danh sách giảng viên: ${errorMessage}`);
     }
+  }
+
+  // ==================== PHÊ DUYỆT CỦA TRƯỞNG BỘ MÔN ====================
+
+  // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt (helper method)
+  async getRegistrationsForHeadApprovalByInstructorId(headInstructorId: number, query: GetRegistrationsForHeadApprovalDto) {
+    // Lấy thông tin trưởng bộ môn và department
+    const instructor = await this.instructorRepository.findOne({
+      where: { id: headInstructorId },
+      relations: ['department']
+    });
+
+    if (!instructor || !instructor.departmentId) {
+      throw new NotFoundException('Không tìm thấy thông tin bộ môn');
+    }
+
+    // Kiểm tra xem có phải trưởng bộ môn không
+    const department = await this.departmentRepository.findOne({
+      where: { headId: headInstructorId }
+    });
+
+    if (!department) {
+      throw new ForbiddenException('Bạn không phải trưởng bộ môn');
+    }
+
+    return this.getRegistrationsForHeadApproval(department.id, query);
+  }
+
+  // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
+  async getRegistrationsForHeadApproval(departmentId: number, query: GetRegistrationsForHeadApprovalDto) {
+    const { thesisRoundId, status, page = 1, limit = 10 } = query;
+
+    const queryBuilder = this.topicRegistrationRepository
+      .createQueryBuilder('registration')
+      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('student.user', 'user')
+      .leftJoinAndSelect('student.classEntity', 'class')
+      .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
+      .leftJoinAndSelect('thesisRound.department', 'department')
+      .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
+      .leftJoinAndSelect('registration.instructor', 'instructor')
+      .leftJoinAndSelect('instructor.user', 'instructorUser')
+      .where('department.id = :departmentId', { departmentId })
+      .andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus: 'Approved' })
+      .andWhere('registration.headStatus = :headStatus', { headStatus: 'Pending' });
+
+    if (thesisRoundId) {
+      queryBuilder.andWhere('registration.thesisRoundId = :thesisRoundId', { thesisRoundId });
+    }
+
+    if (status) {
+      queryBuilder.andWhere('registration.headStatus = :status', { status });
+    }
+
+    queryBuilder.orderBy('registration.instructorApprovalDate', 'DESC');
+
+    // Phân trang
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    const [registrations, total] = await queryBuilder.getManyAndCount();
+
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    return {
+      success: true,
+      data: registrations.map(registration => {
+        const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
+        
+        return {
+          id: registration.id,
+          student: {
+            id: registration.student?.id || null,
+            studentCode: registration.student?.studentCode || null,
+            fullName: registration.student?.user?.fullName || null,
+            email: registration.student?.user?.email || null,
+            phone: registration.student?.user?.phone || null,
+            class: registration.student?.classEntity ? {
+              id: registration.student.classEntity.id,
+              className: registration.student.classEntity.className,
+              classCode: registration.student.classEntity.classCode
+            } : null
+          },
+          thesisRound: registration.thesisRound ? {
+            id: registration.thesisRound.id,
+            roundName: registration.thesisRound.roundName,
+            roundCode: registration.thesisRound.roundCode,
+            status: registration.thesisRound.status
+          } : null,
+          proposedTopic: registration.proposedTopic ? {
+            id: registration.proposedTopic.id,
+            topicTitle: registration.proposedTopic.topicTitle,
+            topicCode: registration.proposedTopic.topicCode
+          } : null,
+          selfProposedTitle: registration.selfProposedTitle,
+          selfProposedDescription: registration.selfProposedDescription,
+          topicTitle: topicTitle,
+          selectionReason: registration.selectionReason,
+          instructor: {
+            id: registration.instructor?.id || null,
+            instructorCode: registration.instructor?.instructorCode || null,
+            fullName: registration.instructor?.user?.fullName || null,
+            email: registration.instructor?.user?.email || null
+          },
+          instructorStatus: registration.instructorStatus,
+          headStatus: registration.headStatus,
+          instructorRejectionReason: registration.instructorRejectionReason,
+          headRejectionReason: registration.headRejectionReason,
+          registrationDate: registration.registrationDate,
+          instructorApprovalDate: registration.instructorApprovalDate,
+          headApprovalDate: registration.headApprovalDate
+        };
+      }),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: limit,
+        hasNextPage,
+        hasPrevPage
+      }
+    };
+  }
+
+  // Trưởng bộ môn phê duyệt/từ chối đăng ký đề tài
+  async approveTopicRegistrationByHead(headInstructorId: number, approveDto: ApproveTopicRegistrationByHeadDto) {
+    const { registrationId, approved, rejectionReason } = approveDto;
+
+    // Lấy thông tin trưởng bộ môn
+    const headInstructor = await this.instructorRepository.findOne({
+      where: { id: headInstructorId },
+      relations: ['department', 'user']
+    });
+
+    if (!headInstructor) {
+      throw new NotFoundException('Không tìm thấy thông tin trưởng bộ môn');
+    }
+
+    // Kiểm tra xem có phải trưởng bộ môn không
+    const department = await this.departmentRepository.findOne({
+      where: { headId: headInstructorId },
+      relations: ['head']
+    });
+
+    if (!department) {
+      throw new ForbiddenException('Bạn không phải trưởng bộ môn');
+    }
+
+    // Lấy thông tin đăng ký
+    const registration = await this.topicRegistrationRepository.findOne({
+      where: { id: registrationId },
+      relations: [
+        'student', 
+        'student.user', 
+        'thesisRound', 
+        'thesisRound.department',
+        'instructor',
+        'instructor.user',
+        'proposedTopic'
+      ]
+    });
+
+    if (!registration) {
+      throw new NotFoundException('Đăng ký đề tài không tồn tại');
+    }
+
+    // Kiểm tra đăng ký có thuộc bộ môn của trưởng bộ môn không
+    if (registration.thesisRound?.departmentId !== department.id) {
+      throw new ForbiddenException('Đăng ký đề tài không thuộc bộ môn của bạn');
+    }
+
+    // Kiểm tra giáo viên hướng dẫn đã phê duyệt chưa
+    if (registration.instructorStatus !== 'Approved') {
+      throw new BadRequestException('Giáo viên hướng dẫn chưa phê duyệt đăng ký này');
+    }
+
+    // Kiểm tra trưởng bộ môn đã xử lý chưa
+    if (registration.headStatus !== 'Pending') {
+      throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
+    }
+
+    const approvalDate = new Date();
+    const updateData: Partial<TopicRegistration> = {
+      headStatus: approved ? 'Approved' : 'Rejected',
+      headApprovalDate: approvalDate
+    };
+
+    if (!approved && rejectionReason) {
+      updateData.headRejectionReason = rejectionReason;
+    }
+
+    await this.topicRegistrationRepository.update(registrationId, updateData);
+
+    // Gửi thông báo real-time cho sinh viên
+    try {
+      if (registration.student?.user?.id) {
+        await this.socketGateway.sendToUser(
+          registration.student.user.id.toString(),
+          'topic_registration_updated',
+          {
+            registrationId: registration.id,
+            status: approved ? 'FullyApproved' : 'RejectedByHead',
+            message: approved ? 
+              'Đăng ký đề tài của bạn đã được trưởng bộ môn phê duyệt. Đăng ký đã hoàn tất!' : 
+              'Đăng ký đề tài của bạn đã bị trưởng bộ môn từ chối',
+            rejectionReason: rejectionReason
+          }
+        );
+      }
+    } catch (socketError) {
+      console.error('Error sending socket notification to student:', socketError);
+    }
+
+    // Gửi thông báo cho giáo viên hướng dẫn
+    try {
+      if (registration.instructor?.user?.id) {
+        await this.socketGateway.sendToUser(
+          registration.instructor.user.id.toString(),
+          'registration_head_approval_updated',
+          {
+            registrationId: registration.id,
+            studentName: registration.student?.user?.fullName || 'N/A',
+            status: approved ? 'Approved' : 'Rejected',
+            message: approved ? 
+              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã được trưởng bộ môn phê duyệt` : 
+              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã bị trưởng bộ môn từ chối`
+          }
+        );
+      }
+    } catch (socketError) {
+      console.error('Error sending socket notification to instructor:', socketError);
+    }
+
+    return {
+      success: true,
+      message: approved ? 'Phê duyệt đăng ký thành công' : 'Từ chối đăng ký thành công',
+      data: {
+        registrationId,
+        status: approved ? 'Approved' : 'Rejected',
+        instructorStatus: registration.instructorStatus,
+        headStatus: approved ? 'Approved' : 'Rejected',
+        isFullyApproved: approved
+      }
+    };
   }
 }
