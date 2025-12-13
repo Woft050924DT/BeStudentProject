@@ -7,6 +7,7 @@ import { Users } from '../user/user.entity';
 import { Department } from '../organization/entities/department.entity';
 import { Faculty } from '../organization/entities/faculty.entity';
 import { Thesis } from '../thesis/entities/thesis.entity';
+import { OrganizationModule } from '../organization/organization.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { Thesis } from '../thesis/entities/thesis.entity';
       Faculty,
       Thesis,
     ]),
+    OrganizationModule,
   ],
   controllers: [InstructorController],
   providers: [InstructorService],

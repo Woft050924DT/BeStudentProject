@@ -326,4 +326,65 @@ export class OrganizationService {
       order: { classCode: 'ASC' }
     });
   }
+
+  async getClassesByAdvisor(advisorId: number): Promise<{
+    success: boolean;
+    data?: any[];
+    message?: string;
+    total?: number;
+  }> {
+    // Kiểm tra instructor tồn tại
+    const instructor = await this.instructorRepository.findOne({
+      where: { id: advisorId },
+      relations: ['user']
+    });
+
+    if (!instructor) {
+      return {
+        success: false,
+        message: 'Không tìm thấy giảng viên'
+      };
+    }
+
+    const classes = await this.classRepository.find({
+      where: { advisorId },
+      relations: ['major', 'major.department', 'major.department.faculty', 'advisor', 'advisor.user', 'students'],
+      order: { classCode: 'ASC' }
+    });
+
+    return {
+      success: true,
+      data: classes.map(classEntity => ({
+        id: classEntity.id,
+        classCode: classEntity.classCode,
+        className: classEntity.className,
+        academicYear: classEntity.academicYear,
+        studentCount: classEntity.studentCount,
+        major: classEntity.major ? {
+          id: classEntity.major.id,
+          majorCode: classEntity.major.majorCode,
+          majorName: classEntity.major.majorName,
+          department: classEntity.major.department ? {
+            id: classEntity.major.department.id,
+            departmentCode: classEntity.major.department.departmentCode,
+            departmentName: classEntity.major.department.departmentName,
+            faculty: classEntity.major.department.faculty ? {
+              id: classEntity.major.department.faculty.id,
+              facultyCode: classEntity.major.department.faculty.facultyCode,
+              facultyName: classEntity.major.department.faculty.facultyName
+            } : null
+          } : null
+        } : null,
+        advisor: classEntity.advisor ? {
+          id: classEntity.advisor.id,
+          instructorCode: classEntity.advisor.instructorCode,
+          fullName: classEntity.advisor.user?.fullName || null
+        } : null,
+        status: classEntity.status,
+        createdAt: classEntity.createdAt,
+        updatedAt: classEntity.updatedAt
+      })),
+      total: classes.length
+    };
+  }
 }
