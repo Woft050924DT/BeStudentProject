@@ -91,7 +91,7 @@ export class OrganizationService {
 
   async getAllDepartments(): Promise<Department[]> {
     return this.departmentRepository.find({
-      relations: ['faculty', 'head', 'majors', 'instructors'],
+      relations: ['faculty', 'head', 'head.user', 'majors', 'instructors'],
       order: { departmentName: 'ASC' }
     });
   }
@@ -99,8 +99,16 @@ export class OrganizationService {
   async getDepartmentsByFaculty(facultyId: number): Promise<Department[]> {
     return this.departmentRepository.find({
       where: { facultyId },
-      relations: ['faculty', 'head', 'majors', 'instructors'],
+      relations: ['faculty', 'head', 'head.user', 'majors', 'instructors'],
       order: { departmentName: 'ASC' }
+    });
+  }
+
+  async getActiveDepartments(): Promise<Department[]> {
+    return this.departmentRepository.find({
+      where: { status: true },
+      relations: ['faculty', 'head'],
+      order: { departmentCode: 'ASC' }
     });
   }
 

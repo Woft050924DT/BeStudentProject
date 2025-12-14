@@ -22,7 +22,7 @@ export class TeacherController {
 
   // Lấy thông tin giảng viên của chính mình
   @Get('info')
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async getMyInfo(@Request() req: AuthenticatedRequest) {
     const userId = req.user.userId;
@@ -34,7 +34,7 @@ export class TeacherController {
 
   // Cập nhật thông tin giảng viên
   @Put('info')
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.HEAD_OF_DEPARTMENT)
   @UseGuards(RolesGuard)
   async updateMyInfo(
     @Request() req: AuthenticatedRequest,

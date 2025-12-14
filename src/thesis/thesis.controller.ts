@@ -20,6 +20,8 @@ import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsD
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
+import { UpdateHeadProfileDto } from './dto/head-profile.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('thesis')
@@ -173,6 +175,18 @@ export class ThesisController {
 
   // ==================== ADMIN & TRƯỞNG BỘ MÔN ====================
 
+  // Gửi yêu cầu mở đợt đề tài cho trưởng bộ môn (Admin hoặc Giáo viên)
+  @Post('request-open-round')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async requestOpenRound(@Request() req: AuthenticatedRequest, @Body() requestDto: RequestOpenRoundDto) {
+    const userId = req.user.userId;
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.requestOpenThesisRound(userId, requestDto);
+  }
+
   // Tạo đợt luận văn (chỉ trưởng bộ môn)
   @Post('thesis-rounds')
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
@@ -290,6 +304,44 @@ export class ThesisController {
       throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
     }
     return this.thesisService.approveTopicRegistrationByHead(instructorId, approveDto);
+  }
+
+  // Lấy thông tin cá nhân trưởng bộ môn
+  @Get('head/profile')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async getHeadProfile(@Request() req: AuthenticatedRequest) {
+    const userId = req.user.userId;
+    let instructorId = req.user.instructorId;
+    
+    // Nếu không có instructorId trong token, thử lấy từ userId
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+    
+    return this.thesisService.getHeadProfile(instructorId, userId);
+  }
+
+  // Cập nhật thông tin cá nhân trưởng bộ môn
+  @Put('head/profile')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async updateHeadProfile(@Request() req: AuthenticatedRequest, @Body() updateDto: UpdateHeadProfileDto) {
+    const userId = req.user.userId;
+    let instructorId = req.user.instructorId;
+    
+    // Nếu không có instructorId trong token, thử lấy từ userId
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+    
+    return this.thesisService.updateHeadProfile(instructorId, userId, updateDto);
   }
 
   // Lấy thống kê đăng ký đề tài (chỉ admin)

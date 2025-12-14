@@ -7,6 +7,7 @@ import { SocketModule } from '../socket/socket.module';
 // Entities
 import { ThesisType } from './entities/thesis-type.entity';
 import { ThesisRound } from './entities/thesis-round.entity';
+import { ThesisRoundRequest } from './entities/thesis-round-request.entity';
 import { InstructorAssignment } from './entities/instructor-assignment.entity';
 import { ProposedTopic } from './entities/proposed-topic.entity';
 import { TopicRegistration } from './entities/topic-registration.entity';
@@ -30,6 +31,7 @@ import { Department } from '../organization/entities/department.entity';
 import { Faculty } from '../organization/entities/faculty.entity';
 import { Class } from '../organization/entities/class.entity';
 import { Major } from '../organization/entities/major.entity';
+import { Users } from '../user/user.entity';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { Major } from '../organization/entities/major.entity';
       // Thesis entities
       ThesisType,
       ThesisRound,
+      ThesisRoundRequest,
       InstructorAssignment,
       ProposedTopic,
       TopicRegistration,
@@ -59,6 +62,7 @@ import { Major } from '../organization/entities/major.entity';
       Faculty,
       Class,
       Major,
+      Users,
     ]),
     SocketModule,
   ],

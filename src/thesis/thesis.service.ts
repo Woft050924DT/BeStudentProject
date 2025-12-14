@@ -5,14 +5,18 @@ import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsD
 import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
+import { UpdateHeadProfileDto } from './dto/head-profile.dto';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { ProposedTopic } from './entities/proposed-topic.entity';
 import { ThesisRound } from './entities/thesis-round.entity';
 import { InstructorAssignment } from './entities/instructor-assignment.entity';
 import { ThesisType } from './entities/thesis-type.entity';
+import { ThesisRoundRequest } from './entities/thesis-round-request.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Users } from '../user/user.entity';
 import { SocketGateway } from '../socket/socket.gateway';
 
 @Injectable()
@@ -28,12 +32,16 @@ export class ThesisService {
     private instructorAssignmentRepository: Repository<InstructorAssignment>,
     @InjectRepository(ThesisType)
     private thesisTypeRepository: Repository<ThesisType>,
+    @InjectRepository(ThesisRoundRequest)
+    private thesisRoundRequestRepository: Repository<ThesisRoundRequest>,
     @InjectRepository(Student)
     private studentRepository: Repository<Student>,
     @InjectRepository(Instructor)
     private instructorRepository: Repository<Instructor>,
     @InjectRepository(Department)
     private departmentRepository: Repository<Department>,
+    @InjectRepository(Users)
+    private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
   ) {}
 
@@ -43,6 +51,14 @@ export class ThesisService {
       where: { userId }
     });
     return student?.id || null;
+  }
+
+  // Lấy instructorId từ userId
+  async getInstructorIdByUserId(userId: number): Promise<number | null> {
+    const instructor = await this.instructorRepository.findOne({
+      where: { userId }
+    });
+    return instructor?.id || null;
   }
 
   // Đăng ký đề tài cho sinh viên
@@ -1647,6 +1663,413 @@ export class ThesisService {
         headStatus: approved ? 'Approved' : 'Rejected',
         isFullyApproved: approved
       }
+    };
+  }
+
+  // ==================== YÊU CẦU MỞ ĐỢT ĐỀ TÀI ====================
+
+  // Gửi yêu cầu mở đợt đề tài cho trưởng bộ môn
+  async requestOpenThesisRound(userId: number, requestDto: RequestOpenRoundDto) {
+    const { roundCode, roundName, thesisTypeId, departmentId, facultyId, ...otherData } = requestDto;
+
+    // Kiểm tra mã đợt đã tồn tại chưa (trong đợt đề tài hoặc yêu cầu)
+    const existingRound = await this.thesisRoundRepository.findOne({
+      where: { roundCode }
+    });
+
+    if (existingRound) {
+      throw new ConflictException('Mã đợt đề tài đã tồn tại');
+    }
+
+    // Kiểm tra yêu cầu với mã này đã tồn tại chưa (trạng thái Pending)
+    const existingRequest = await this.thesisRoundRequestRepository.findOne({
+      where: { roundCode, status: 'Pending' }
+    });
+
+    if (existingRequest) {
+      throw new ConflictException('Đã có yêu cầu mở đợt đề tài với mã này đang chờ phê duyệt');
+    }
+
+    // Kiểm tra loại đề tài tồn tại
+    const thesisType = await this.thesisTypeRepository.findOne({
+      where: { id: thesisTypeId }
+    });
+
+    if (!thesisType) {
+      throw new NotFoundException('Loại đề tài không tồn tại');
+    }
+
+    // Kiểm tra bộ môn tồn tại và có trưởng bộ môn
+    const department = await this.departmentRepository.findOne({
+      where: { id: departmentId },
+      relations: ['head', 'head.user']
+    });
+
+    if (!department) {
+      throw new NotFoundException('Bộ môn không tồn tại');
+    }
+
+    if (!department.head || !department.head.user) {
+      throw new BadRequestException('Bộ môn này chưa có trưởng bộ môn');
+    }
+
+    // Kiểm tra user tồn tại
+    const user = await this.userRepository.findOne({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      throw new NotFoundException('Người dùng không tồn tại');
+    }
+
+    // Tạo yêu cầu
+    const request = this.thesisRoundRequestRepository.create({
+      roundCode,
+      roundName,
+      thesisTypeId,
+      departmentId,
+      facultyId,
+      requestedById: userId,
+      status: 'Pending',
+      ...otherData,
+      // Chuyển đổi string dates thành Date objects
+      startDate: requestDto.startDate ? new Date(requestDto.startDate) : undefined,
+      endDate: requestDto.endDate ? new Date(requestDto.endDate) : undefined,
+      topicProposalDeadline: requestDto.topicProposalDeadline ? new Date(requestDto.topicProposalDeadline) : undefined,
+      registrationDeadline: requestDto.registrationDeadline ? new Date(requestDto.registrationDeadline) : undefined,
+      reportSubmissionDeadline: requestDto.reportSubmissionDeadline ? new Date(requestDto.reportSubmissionDeadline) : undefined,
+    });
+
+    const savedRequest = await this.thesisRoundRequestRepository.save(request);
+
+    // Load relations để trả về đầy đủ thông tin
+    const requestWithRelations = await this.thesisRoundRequestRepository.findOne({
+      where: { id: savedRequest.id },
+      relations: ['thesisType', 'department', 'department.head', 'department.head.user', 'faculty', 'requestedBy']
+    });
+
+    if (!requestWithRelations) {
+      throw new NotFoundException('Không tìm thấy yêu cầu sau khi tạo');
+    }
+
+    // Gửi thông báo real-time đến trưởng bộ môn
+    if (department.head.user.id) {
+      try {
+        await this.socketGateway.sendToUser(
+          department.head.user.id.toString(),
+          'new_thesis_round_request',
+          {
+            requestId: savedRequest.id,
+            roundCode: savedRequest.roundCode,
+            roundName: savedRequest.roundName,
+            requestedBy: {
+              id: user.id,
+              fullName: user.fullName,
+              email: user.email
+            },
+            department: {
+              id: department.id,
+              departmentName: department.departmentName
+            },
+            requestedAt: savedRequest.createdAt,
+            message: 'Có yêu cầu mở đợt đề tài mới cần bạn phê duyệt'
+          }
+        );
+      } catch (socketError) {
+        console.error('Error sending socket notification to head of department:', socketError);
+        // Không throw error vì yêu cầu đã được lưu thành công
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Yêu cầu mở đợt đề tài đã được gửi thành công đến trưởng bộ môn',
+      data: {
+        requestId: requestWithRelations.id,
+        roundCode: requestWithRelations.roundCode,
+        roundName: requestWithRelations.roundName,
+        department: requestWithRelations.department ? {
+          id: requestWithRelations.department.id,
+          departmentCode: requestWithRelations.department.departmentCode || '',
+          departmentName: requestWithRelations.department.departmentName || '',
+          head: requestWithRelations.department.head ? {
+            id: requestWithRelations.department.head.id,
+            instructorCode: requestWithRelations.department.head.instructorCode || '',
+            fullName: requestWithRelations.department.head.user?.fullName || 'N/A',
+            email: requestWithRelations.department.head.user?.email || 'N/A'
+          } : null
+        } : null,
+        thesisType: requestWithRelations.thesisType ? {
+          id: requestWithRelations.thesisType.id,
+          typeCode: requestWithRelations.thesisType.typeCode || '',
+          typeName: requestWithRelations.thesisType.typeName || ''
+        } : null,
+        status: requestWithRelations.status,
+        requestedBy: requestWithRelations.requestedBy ? {
+          id: requestWithRelations.requestedBy.id,
+          username: requestWithRelations.requestedBy.username || '',
+          fullName: requestWithRelations.requestedBy.fullName || '',
+          email: requestWithRelations.requestedBy.email || ''
+        } : null,
+        requestedAt: requestWithRelations.createdAt,
+        createdAt: requestWithRelations.createdAt
+      }
+    };
+  }
+
+  // ==================== THÔNG TIN TRƯỞNG BỘ MÔN ====================
+
+  // Lấy thông tin cá nhân trưởng bộ môn
+  async getHeadProfile(instructorId: number | null, userId: number | null) {
+    let instructor = null;
+    let user = null;
+    let department = null;
+
+    // Nếu có instructorId, tìm instructor
+    if (instructorId) {
+      instructor = await this.instructorRepository.findOne({
+        where: { id: instructorId },
+        relations: ['user', 'department', 'department.faculty']
+      });
+
+      // Tìm department mà instructor này là head
+      department = await this.departmentRepository.findOne({
+        where: { headId: instructorId },
+        relations: ['faculty']
+      });
+    }
+
+    // Nếu không có instructor hoặc không tìm thấy, thử tìm từ userId
+    if (!instructor && userId) {
+      instructor = await this.instructorRepository.findOne({
+        where: { userId },
+        relations: ['user', 'department', 'department.faculty']
+      });
+
+      // Nếu có instructor, tìm department mà instructor này là head
+      if (instructor) {
+        department = await this.departmentRepository.findOne({
+          where: { headId: instructor.id },
+          relations: ['faculty']
+        });
+      }
+    }
+
+    // Lấy thông tin user
+    if (instructor?.user) {
+      user = instructor.user;
+    } else if (userId) {
+      user = await this.userRepository.findOne({
+        where: { id: userId }
+      });
+    }
+
+    // Nếu không có user, trả về thông tin rỗng
+    if (!user) {
+      return {
+        instructorCode: null,
+        fullName: null,
+        email: null,
+        phone: null,
+        academicTitle: null,
+        degree: null,
+        specialization: null,
+        yearsOfExperience: 0,
+        department: null,
+        isFirstTime: true,
+        message: 'Chưa có thông tin trưởng bộ môn. Vui lòng điền và lưu thông tin để hoàn thiện hồ sơ.'
+      };
+    }
+
+    // Sử dụng department từ instructor nếu không tìm thấy department từ headId
+    if (!department && instructor?.department) {
+      department = await this.departmentRepository.findOne({
+        where: { id: instructor.department.id },
+        relations: ['faculty']
+      });
+    }
+
+    // Kiểm tra xem thông tin đã đầy đủ chưa
+    // Thông tin đầy đủ khi có: instructorCode, department, fullName, email
+    const hasCompleteInfo = instructor && 
+      instructor.instructorCode && 
+      instructor.departmentId &&
+      user.fullName &&
+      user.email;
+
+    // Trả về thông tin có gì lấy đấy
+    return {
+      instructorCode: instructor?.instructorCode || null,
+      fullName: user.fullName || null,
+      email: user.email || null,
+      phone: user.phone || null,
+      academicTitle: instructor?.academicTitle || null,
+      degree: instructor?.degree || null,
+      specialization: instructor?.specialization || null,
+      yearsOfExperience: instructor?.yearsOfExperience || 0,
+      department: department ? {
+        id: department.id,
+        departmentCode: department.departmentCode,
+        departmentName: department.departmentName,
+        faculty: department.faculty ? {
+          id: department.faculty.id,
+          facultyCode: department.faculty.facultyCode,
+          facultyName: department.faculty.facultyName
+        } : null
+      } : (instructor?.department ? {
+        id: instructor.department.id,
+        departmentCode: instructor.department.departmentCode,
+        departmentName: instructor.department.departmentName,
+        faculty: instructor.department.faculty ? {
+          id: instructor.department.faculty.id,
+          facultyCode: instructor.department.faculty.facultyCode,
+          facultyName: instructor.department.faculty.facultyName
+        } : null
+      } : null),
+      isFirstTime: !hasCompleteInfo,
+      ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ trưởng bộ môn.' })
+    };
+  }
+
+  // Cập nhật thông tin cá nhân trưởng bộ môn
+  async updateHeadProfile(instructorId: number | null, userId: number | null, updateDto: UpdateHeadProfileDto) {
+    // Tìm instructor nếu có instructorId
+    let instructor = null;
+    if (instructorId) {
+      instructor = await this.instructorRepository.findOne({
+        where: { id: instructorId },
+        relations: ['user', 'department']
+      });
+    }
+
+    // Nếu không có instructor, thử tìm từ userId
+    if (!instructor && userId) {
+      instructor = await this.instructorRepository.findOne({
+        where: { userId },
+        relations: ['user', 'department']
+      });
+    }
+
+    // Lấy thông tin user
+    let user = null;
+    if (instructor?.user) {
+      user = instructor.user;
+    } else if (userId) {
+      user = await this.userRepository.findOne({
+        where: { id: userId }
+      });
+    }
+
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    // Cập nhật thông tin user
+    if (updateDto.fullName !== undefined) {
+      user.fullName = updateDto.fullName;
+    }
+    if (updateDto.email !== undefined) {
+      user.email = updateDto.email;
+    }
+    if (updateDto.phone !== undefined) {
+      user.phone = updateDto.phone;
+    }
+
+    // Lưu thay đổi user
+    await this.userRepository.save(user);
+
+    // Cập nhật thông tin instructor nếu có
+    if (instructor) {
+      if (updateDto.academicTitle !== undefined) {
+        instructor.academicTitle = updateDto.academicTitle;
+      }
+      if (updateDto.degree !== undefined) {
+        instructor.degree = updateDto.degree;
+      }
+      if (updateDto.specialization !== undefined) {
+        instructor.specialization = updateDto.specialization;
+      }
+
+      await this.instructorRepository.save(instructor);
+    }
+
+    // Tìm department mà instructor này là head (nếu có)
+    let department = null;
+    if (instructor) {
+      department = await this.departmentRepository.findOne({
+        where: { headId: instructor.id },
+        relations: ['faculty']
+      });
+    }
+
+    // Sử dụng department từ instructor nếu không tìm thấy từ headId
+    if (!department && instructor?.department) {
+      department = await this.departmentRepository.findOne({
+        where: { id: instructor.department.id },
+        relations: ['faculty']
+      });
+    }
+
+    // Lấy lại thông tin đầy đủ
+    if (instructor) {
+      const updatedInstructor = await this.instructorRepository.findOne({
+        where: { id: instructor.id },
+        relations: ['user', 'department', 'department.faculty']
+      });
+
+      if (updatedInstructor) {
+        const updatedUser = updatedInstructor.user || user;
+        const updatedDept = department || updatedInstructor.department;
+
+        return {
+          instructorCode: updatedInstructor.instructorCode || null,
+          fullName: updatedUser.fullName || null,
+          email: updatedUser.email || null,
+          phone: updatedUser.phone || null,
+          academicTitle: updatedInstructor.academicTitle || null,
+          degree: updatedInstructor.degree || null,
+          specialization: updatedInstructor.specialization || null,
+          yearsOfExperience: updatedInstructor.yearsOfExperience || 0,
+          department: updatedDept ? {
+            id: updatedDept.id,
+            departmentCode: updatedDept.departmentCode,
+            departmentName: updatedDept.departmentName,
+            faculty: updatedDept.faculty ? {
+              id: updatedDept.faculty.id,
+              facultyCode: updatedDept.faculty.facultyCode,
+              facultyName: updatedDept.faculty.facultyName
+            } : null
+          } : null,
+          isFirstTime: !(updatedInstructor.instructorCode && updatedInstructor.departmentId && updatedUser.fullName && updatedUser.email)
+        };
+      }
+    }
+
+    // Nếu không có instructor, chỉ trả về thông tin user
+    const updatedUser = await this.userRepository.findOne({
+      where: { id: user.id }
+    });
+
+    return {
+      instructorCode: null,
+      fullName: updatedUser?.fullName || null,
+      email: updatedUser?.email || null,
+      phone: updatedUser?.phone || null,
+      academicTitle: null,
+      degree: null,
+      specialization: null,
+      yearsOfExperience: 0,
+      department: department ? {
+        id: department.id,
+        departmentCode: department.departmentCode,
+        departmentName: department.departmentName,
+        faculty: department.faculty ? {
+          id: department.faculty.id,
+          facultyCode: department.faculty.facultyCode,
+          facultyName: department.faculty.facultyName
+        } : null
+      } : null,
+      isFirstTime: true
     };
   }
 }

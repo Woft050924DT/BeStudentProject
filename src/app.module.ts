@@ -10,6 +10,7 @@ import { Class } from './organization/entities/class.entity';
 import { Instructor } from './instructor/entities/instructor.entity';
 import { ThesisType } from './thesis/entities/thesis-type.entity';
 import { ThesisRound } from './thesis/entities/thesis-round.entity';
+import { ThesisRoundRequest } from './thesis/entities/thesis-round-request.entity';
 import { InstructorAssignment } from './thesis/entities/instructor-assignment.entity';
 import { ProposedTopic } from './thesis/entities/proposed-topic.entity';
 import { TopicRegistration } from './thesis/entities/topic-registration.entity';
@@ -61,6 +62,7 @@ import { ThesisModule } from './thesis/thesis.module';
         Instructor,
         ThesisType,
         ThesisRound,
+        ThesisRoundRequest,
         InstructorAssignment,
         ProposedTopic,
         TopicRegistration,
