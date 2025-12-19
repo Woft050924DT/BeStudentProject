@@ -1980,6 +1980,25 @@ export class ThesisService {
 
     // Cập nhật thông tin instructor nếu có
     if (instructor) {
+      // Kiểm tra và cập nhật mã giảng viên nếu có thay đổi
+      if (updateDto.instructorCode !== undefined && updateDto.instructorCode !== instructor.instructorCode) {
+        // Kiểm tra mã giảng viên đã tồn tại chưa (trừ chính bản thân instructor này)
+        const existingInstructor = await this.instructorRepository.findOne({
+          where: { instructorCode: updateDto.instructorCode }
+        });
+
+        if (existingInstructor && existingInstructor.id !== instructor.id) {
+          throw new ConflictException('Mã giảng viên đã tồn tại');
+        }
+
+        instructor.instructorCode = updateDto.instructorCode;
+      }
+
+      // Cập nhật số năm kinh nghiệm
+      if (updateDto.yearsOfExperience !== undefined) {
+        instructor.yearsOfExperience = updateDto.yearsOfExperience;
+      }
+
       if (updateDto.academicTitle !== undefined) {
         instructor.academicTitle = updateDto.academicTitle;
       }

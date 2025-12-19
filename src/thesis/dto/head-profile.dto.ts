@@ -1,6 +1,12 @@
-import { IsOptional, IsString, IsEmail, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsEmail, MaxLength, IsNumber, Min } from 'class-validator';
 
 export class UpdateHeadProfileDto {
+  // Mã giảng viên
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  instructorCode?: string;
+
   // Họ và tên
   @IsOptional()
   @IsString()
@@ -35,4 +41,10 @@ export class UpdateHeadProfileDto {
   @IsOptional()
   @IsString()
   specialization?: string;
+
+  // Số năm kinh nghiệm
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  yearsOfExperience?: number;
 }
