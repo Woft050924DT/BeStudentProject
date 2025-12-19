@@ -312,7 +312,7 @@ export class ThesisController {
   @UseGuards(RolesGuard)
   async getHeadProfile(@Request() req: AuthenticatedRequest) {
     const userId = req.user.userId;
-    let instructorId = req.user.instructorId;
+    let instructorId: number | null = req.user.instructorId ?? null;
     
     // Nếu không có instructorId trong token, thử lấy từ userId
     if (!instructorId && userId) {
@@ -331,7 +331,7 @@ export class ThesisController {
   @UseGuards(RolesGuard)
   async updateHeadProfile(@Request() req: AuthenticatedRequest, @Body() updateDto: UpdateHeadProfileDto) {
     const userId = req.user.userId;
-    let instructorId = req.user.instructorId;
+    let instructorId: number | null = req.user.instructorId ?? null;
     
     // Nếu không có instructorId trong token, thử lấy từ userId
     if (!instructorId && userId) {

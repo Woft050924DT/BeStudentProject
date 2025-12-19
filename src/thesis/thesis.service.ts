@@ -1821,9 +1821,9 @@ export class ThesisService {
 
   // Lấy thông tin cá nhân trưởng bộ môn
   async getHeadProfile(instructorId: number | null, userId: number | null) {
-    let instructor = null;
-    let user = null;
-    let department = null;
+    let instructor: Instructor | null = null;
+    let user: Users | null = null;
+    let department: Department | null = null;
 
     // Nếu có instructorId, tìm instructor
     if (instructorId) {
@@ -1934,7 +1934,7 @@ export class ThesisService {
   // Cập nhật thông tin cá nhân trưởng bộ môn
   async updateHeadProfile(instructorId: number | null, userId: number | null, updateDto: UpdateHeadProfileDto) {
     // Tìm instructor nếu có instructorId
-    let instructor = null;
+    let instructor: Instructor | null = null;
     if (instructorId) {
       instructor = await this.instructorRepository.findOne({
         where: { id: instructorId },
@@ -1951,7 +1951,7 @@ export class ThesisService {
     }
 
     // Lấy thông tin user
-    let user = null;
+    let user: Users | null = null;
     if (instructor?.user) {
       user = instructor.user;
     } else if (userId) {
@@ -1994,7 +1994,7 @@ export class ThesisService {
     }
 
     // Tìm department mà instructor này là head (nếu có)
-    let department = null;
+    let department: Department | null = null;
     if (instructor) {
       department = await this.departmentRepository.findOne({
         where: { headId: instructor.id },
