@@ -5,6 +5,8 @@ import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsD
 import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import { AddClassToRoundDto, AddMultipleClassesToRoundDto } from './dto/thesis-round-class.dto';
+import { AddStudentToRoundDto, AddMultipleStudentsToRoundDto } from './dto/thesis-round-student.dto';
 import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
 import { UpdateHeadProfileDto } from './dto/head-profile.dto';
 import { TopicRegistration } from './entities/topic-registration.entity';
@@ -13,9 +15,12 @@ import { ThesisRound } from './entities/thesis-round.entity';
 import { InstructorAssignment } from './entities/instructor-assignment.entity';
 import { ThesisType } from './entities/thesis-type.entity';
 import { ThesisRoundRequest } from './entities/thesis-round-request.entity';
+import { ThesisRoundClass } from './entities/thesis-round-class.entity';
+import { StudentThesisRound } from './entities/student-thesis-round.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Class } from '../organization/entities/class.entity';
 import { Users } from '../user/user.entity';
 import { SocketGateway } from '../socket/socket.gateway';
 
@@ -40,6 +45,12 @@ export class ThesisService {
     private instructorRepository: Repository<Instructor>,
     @InjectRepository(Department)
     private departmentRepository: Repository<Department>,
+    @InjectRepository(Class)
+    private classRepository: Repository<Class>,
+    @InjectRepository(ThesisRoundClass)
+    private thesisRoundClassRepository: Repository<ThesisRoundClass>,
+    @InjectRepository(StudentThesisRound)
+    private studentThesisRoundRepository: Repository<StudentThesisRound>,
     @InjectRepository(Users)
     private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
@@ -1027,8 +1038,8 @@ export class ThesisService {
 
   // ==================== QUẢN LÝ ĐỢT ĐỀ TÀI ====================
 
-  // Tạo đợt đề tài (chỉ trưởng bộ môn)
-  async createThesisRound(createDto: CreateThesisRoundDto) {
+  // Tạo đợt đề tài (trưởng bộ môn và giáo viên)
+  async createThesisRound(createDto: CreateThesisRoundDto, userId?: number, userRole?: string) {
     const { roundCode, roundName, thesisTypeId, departmentId, facultyId, ...otherData } = createDto;
 
     // Kiểm tra mã đợt đã tồn tại chưa
@@ -1049,12 +1060,31 @@ export class ThesisService {
       throw new NotFoundException('Loại luận văn không tồn tại');
     }
 
+    // Nếu là giáo viên (TEACHER), tự động set departmentId từ instructor của họ
+    let finalDepartmentId = departmentId;
+    if (userRole === 'teacher' && userId) {
+      const instructor = await this.instructorRepository.findOne({
+        where: { userId }
+      });
+
+      if (instructor && instructor.departmentId) {
+        // Nếu giáo viên có departmentId, sử dụng departmentId của giáo viên
+        // Nếu departmentId được truyền vào và khác với department của giáo viên, kiểm tra quyền
+        if (departmentId && departmentId !== instructor.departmentId) {
+          throw new ForbiddenException('Bạn chỉ có thể tạo đợt tiểu luận cho bộ môn của mình');
+        }
+        finalDepartmentId = instructor.departmentId;
+      } else if (!departmentId) {
+        throw new BadRequestException('Giáo viên chưa được gán vào bộ môn. Vui lòng liên hệ quản trị viên.');
+      }
+    }
+
     // Tạo đợt luận văn
     const thesisRound = this.thesisRoundRepository.create({
       roundCode,
       roundName,
       thesisTypeId,
-      departmentId,
+      departmentId: finalDepartmentId,
       facultyId,
       ...otherData,
       status: 'Preparing'
@@ -1099,15 +1129,33 @@ export class ThesisService {
   // Kiểm tra quyền quản lý đợt đề tài
   private async checkThesisRoundManagementPermission(roundId: number, userId: number, userRole: string): Promise<ThesisRound> {
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: roundId }
+      where: { id: roundId },
+      relations: ['department']
     });
 
     if (!thesisRound) {
       throw new NotFoundException('Đợt luận văn không tồn tại');
     }
 
-    // Admin và Head of Department có quyền quản lý
+    // Admin và Head of Department có quyền quản lý tất cả đợt
     if (userRole === 'admin' || userRole === 'head_of_department') {
+      return thesisRound;
+    }
+
+    // Giáo viên chỉ có thể quản lý đợt của bộ môn mình
+    if (userRole === 'teacher') {
+      const instructor = await this.instructorRepository.findOne({
+        where: { userId }
+      });
+
+      if (!instructor) {
+        throw new ForbiddenException('Bạn không có quyền quản lý đợt đề tài này');
+      }
+
+      if (thesisRound.departmentId && instructor.departmentId !== thesisRound.departmentId) {
+        throw new ForbiddenException('Bạn chỉ có thể quản lý đợt đề tài của bộ môn mình');
+      }
+
       return thesisRound;
     }
 
@@ -1181,9 +1229,9 @@ export class ThesisService {
         instructor: {
           id: instructor.id,
           instructorCode: instructor.instructorCode,
-          fullName: instructor.user.fullName,
-          email: instructor.user.email,
-          department: instructor.department.departmentName
+          fullName: instructor.user?.fullName || null,
+          email: instructor.user?.email || null,
+          department: instructor.department?.departmentName || null
         },
         maxStudents
       }
@@ -1326,6 +1374,388 @@ export class ThesisService {
     return {
       success: true,
       message: 'Xóa giảng viên khỏi đợt đề tài thành công'
+    };
+  }
+
+  // ==================== QUẢN LÝ LỚP TRONG ĐỢT ====================
+
+  // Thêm một lớp vào đợt đề tài
+  async addClassToRound(roundId: number, addDto: AddClassToRoundDto, userId: number, userRole: string) {
+    // Kiểm tra quyền - cho phép cả giáo viên và trưởng bộ môn
+    const thesisRound = await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const { classId } = addDto;
+
+    // Kiểm tra lớp tồn tại
+    const classEntity = await this.classRepository.findOne({
+      where: { id: classId },
+      relations: ['major', 'major.department', 'advisor', 'advisor.user']
+    });
+
+    if (!classEntity) {
+      throw new NotFoundException('Lớp không tồn tại');
+    }
+
+    // Nếu đợt có departmentId, kiểm tra lớp có thuộc bộ môn đó không
+    if (thesisRound.departmentId && classEntity.major?.department?.id !== thesisRound.departmentId) {
+      throw new BadRequestException('Lớp không thuộc bộ môn của đợt đề tài này');
+    }
+
+    // Kiểm tra lớp đã được thêm vào đợt này chưa
+    const existingClass = await this.thesisRoundClassRepository.findOne({
+      where: {
+        thesisRoundId: roundId,
+        classId
+      }
+    });
+
+    if (existingClass) {
+      throw new ConflictException('Lớp đã được thêm vào đợt này rồi');
+    }
+
+    // Thêm lớp vào đợt
+    const thesisRoundClass = this.thesisRoundClassRepository.create({
+      thesisRoundId: roundId,
+      classId
+    });
+
+    await this.thesisRoundClassRepository.save(thesisRoundClass);
+
+    return {
+      success: true,
+      message: 'Thêm lớp vào đợt đề tài thành công',
+      data: {
+        thesisRoundId: roundId,
+        class: {
+          id: classEntity.id,
+          classCode: classEntity.classCode,
+          className: classEntity.className,
+          academicYear: classEntity.academicYear,
+          studentCount: classEntity.studentCount,
+          major: classEntity.major ? {
+            id: classEntity.major.id,
+            majorCode: classEntity.major.majorCode,
+            majorName: classEntity.major.majorName,
+            department: classEntity.major.department ? {
+              id: classEntity.major.department.id,
+              departmentCode: classEntity.major.department.departmentCode,
+              departmentName: classEntity.major.department.departmentName
+            } : null
+          } : null,
+          advisor: classEntity.advisor ? {
+            id: classEntity.advisor.id,
+            instructorCode: classEntity.advisor.instructorCode,
+            fullName: classEntity.advisor.user?.fullName || null
+          } : null
+        }
+      }
+    };
+  }
+
+  // Thêm nhiều lớp vào đợt đề tài
+  async addMultipleClassesToRound(roundId: number, addDto: AddMultipleClassesToRoundDto, userId: number, userRole: string) {
+    // Kiểm tra quyền
+    await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const { classes } = addDto;
+
+    if (!classes || classes.length === 0) {
+      throw new BadRequestException('Danh sách lớp không được để trống');
+    }
+
+    const results: any[] = [];
+    const errors: Array<{ classId: number; error: string }> = [];
+
+    for (const classDto of classes) {
+      try {
+        const result = await this.addClassToRound(roundId, classDto, userId, userRole);
+        results.push(result.data);
+      } catch (error) {
+        errors.push({
+          classId: classDto.classId,
+          error: error instanceof Error ? error.message : 'Lỗi không xác định'
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `Đã thêm ${results.length} lớp thành công${errors.length > 0 ? `, ${errors.length} lớp thất bại` : ''}`,
+      data: {
+        thesisRoundId: roundId,
+        classes: results,
+        errors: errors.length > 0 ? errors : undefined
+      },
+      totalSuccess: results.length,
+      totalErrors: errors.length
+    };
+  }
+
+  // Lấy danh sách lớp trong đợt đề tài
+  async getClassesInRound(roundId: number) {
+    const thesisRound = await this.thesisRoundRepository.findOne({
+      where: { id: roundId }
+    });
+
+    if (!thesisRound) {
+      throw new NotFoundException('Đợt luận văn không tồn tại');
+    }
+
+    const thesisRoundClasses = await this.thesisRoundClassRepository.find({
+      where: { thesisRoundId: roundId },
+      relations: ['class', 'class.major', 'class.major.department', 'class.advisor', 'class.advisor.user']
+    });
+
+    return {
+      success: true,
+      data: {
+        thesisRound: {
+          id: thesisRound.id,
+          roundCode: thesisRound.roundCode,
+          roundName: thesisRound.roundName
+        },
+        classes: thesisRoundClasses.map(trc => ({
+          id: trc.id,
+          class: {
+            id: trc.class.id,
+            classCode: trc.class.classCode,
+            className: trc.class.className,
+            academicYear: trc.class.academicYear,
+            studentCount: trc.class.studentCount,
+            status: trc.class.status,
+            major: trc.class.major ? {
+              id: trc.class.major.id,
+              majorCode: trc.class.major.majorCode,
+              majorName: trc.class.major.majorName,
+              department: trc.class.major.department ? {
+                id: trc.class.major.department.id,
+                departmentCode: trc.class.major.department.departmentCode,
+                departmentName: trc.class.major.department.departmentName
+              } : null
+            } : null,
+            advisor: trc.class.advisor ? {
+              id: trc.class.advisor.id,
+              instructorCode: trc.class.advisor.instructorCode,
+              fullName: trc.class.advisor.user?.fullName || null
+            } : null
+          },
+          addedAt: trc.createdAt
+        })),
+        total: thesisRoundClasses.length
+      }
+    };
+  }
+
+  // Xóa lớp khỏi đợt đề tài
+  async removeClassFromRound(roundId: number, classId: number, userId: number, userRole: string) {
+    // Kiểm tra quyền
+    await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const thesisRoundClass = await this.thesisRoundClassRepository.findOne({
+      where: {
+        thesisRoundId: roundId,
+        classId
+      }
+    });
+
+    if (!thesisRoundClass) {
+      throw new NotFoundException('Lớp không tồn tại trong đợt đề tài này');
+    }
+
+    await this.thesisRoundClassRepository.remove(thesisRoundClass);
+
+    return {
+      success: true,
+      message: 'Xóa lớp khỏi đợt đề tài thành công'
+    };
+  }
+
+  // ==================== QUẢN LÝ HỌC SINH TRONG ĐỢT ====================
+
+  // Thêm một học sinh vào đợt đề tài
+  async addStudentToRound(roundId: number, addDto: AddStudentToRoundDto, userId: number, userRole: string) {
+    // Kiểm tra quyền
+    const thesisRound = await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const { studentId, eligible = true, notes } = addDto;
+
+    // Kiểm tra học sinh tồn tại
+    const student = await this.studentRepository.findOne({
+      where: { id: studentId },
+      relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department']
+    });
+
+    if (!student) {
+      throw new NotFoundException('Học sinh không tồn tại');
+    }
+
+    // Nếu đợt có departmentId, kiểm tra học sinh có thuộc bộ môn đó không (thông qua lớp)
+    if (thesisRound.departmentId && student.classEntity?.major?.department?.id !== thesisRound.departmentId) {
+      throw new BadRequestException('Học sinh không thuộc bộ môn của đợt đề tài này');
+    }
+
+    // Kiểm tra học sinh đã được thêm vào đợt này chưa
+    const existingStudent = await this.studentThesisRoundRepository.findOne({
+      where: {
+        thesisRoundId: roundId,
+        studentId
+      }
+    });
+
+    if (existingStudent) {
+      throw new ConflictException('Học sinh đã được thêm vào đợt này rồi');
+    }
+
+    // Thêm học sinh vào đợt
+    const studentThesisRound = this.studentThesisRoundRepository.create({
+      thesisRoundId: roundId,
+      studentId,
+      eligible,
+      notes
+    });
+
+    await this.studentThesisRoundRepository.save(studentThesisRound);
+
+    return {
+      success: true,
+      message: 'Thêm học sinh vào đợt đề tài thành công',
+      data: {
+        thesisRoundId: roundId,
+        student: {
+          id: student.id,
+          studentCode: student.studentCode,
+          fullName: student.user?.fullName || null,
+          email: student.user?.email || null,
+          class: student.classEntity ? {
+            id: student.classEntity.id,
+            classCode: student.classEntity.classCode,
+            className: student.classEntity.className
+          } : null,
+          eligible,
+          notes
+        }
+      }
+    };
+  }
+
+  // Thêm nhiều học sinh vào đợt đề tài
+  async addMultipleStudentsToRound(roundId: number, addDto: AddMultipleStudentsToRoundDto, userId: number, userRole: string) {
+    // Kiểm tra quyền
+    await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const { students } = addDto;
+
+    if (!students || students.length === 0) {
+      throw new BadRequestException('Danh sách học sinh không được để trống');
+    }
+
+    const results: any[] = [];
+    const errors: Array<{ studentId: number | null; error: string }> = [];
+
+    for (const studentDto of students) {
+      try {
+        const result = await this.addStudentToRound(roundId, studentDto, userId, userRole);
+        results.push(result.data);
+      } catch (error) {
+        errors.push({
+          studentId: studentDto?.studentId ?? null,
+          error: error instanceof Error ? error.message : 'Lỗi không xác định'
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `Đã thêm ${results.length} học sinh thành công${errors.length > 0 ? `, ${errors.length} học sinh thất bại` : ''}`,
+      data: {
+        thesisRoundId: roundId,
+        students: results,
+        errors: errors.length > 0 ? errors : undefined
+      },
+      totalSuccess: results.length,
+      totalErrors: errors.length
+    };
+  }
+
+  // Lấy danh sách học sinh trong đợt đề tài
+  async getStudentsInRound(roundId: number) {
+    const thesisRound = await this.thesisRoundRepository.findOne({
+      where: { id: roundId }
+    });
+
+    if (!thesisRound) {
+      throw new NotFoundException('Đợt luận văn không tồn tại');
+    }
+
+    const studentThesisRounds = await this.studentThesisRoundRepository.find({
+      where: { thesisRoundId: roundId },
+      relations: ['student', 'student.user', 'student.classEntity', 'student.classEntity.major', 'student.classEntity.major.department']
+    });
+
+    return {
+      success: true,
+      data: {
+        thesisRound: {
+          id: thesisRound.id,
+          roundCode: thesisRound.roundCode,
+          roundName: thesisRound.roundName
+        },
+        students: studentThesisRounds.map(str => ({
+          id: str.id,
+          student: {
+            id: str.student.id,
+            studentCode: str.student.studentCode,
+            fullName: str.student.user?.fullName || null,
+            email: str.student.user?.email || null,
+            phone: str.student.user?.phone || null,
+            gpa: str.student.gpa,
+            academicStatus: str.student.academicStatus,
+            class: str.student.classEntity ? {
+              id: str.student.classEntity.id,
+              classCode: str.student.classEntity.classCode,
+              className: str.student.classEntity.className,
+              major: str.student.classEntity.major ? {
+                id: str.student.classEntity.major.id,
+                majorCode: str.student.classEntity.major.majorCode,
+                majorName: str.student.classEntity.major.majorName,
+                department: str.student.classEntity.major.department ? {
+                  id: str.student.classEntity.major.department.id,
+                  departmentCode: str.student.classEntity.major.department.departmentCode,
+                  departmentName: str.student.classEntity.major.department.departmentName
+                } : null
+              } : null
+            } : null
+          },
+          eligible: str.eligible,
+          notes: str.notes,
+          addedAt: str.createdAt
+        })),
+        total: studentThesisRounds.length
+      }
+    };
+  }
+
+  // Xóa học sinh khỏi đợt đề tài
+  async removeStudentFromRound(roundId: number, studentId: number, userId: number, userRole: string) {
+    // Kiểm tra quyền
+    await this.checkThesisRoundManagementPermission(roundId, userId, userRole);
+
+    const studentThesisRound = await this.studentThesisRoundRepository.findOne({
+      where: {
+        thesisRoundId: roundId,
+        studentId
+      }
+    });
+
+    if (!studentThesisRound) {
+      throw new NotFoundException('Học sinh không tồn tại trong đợt đề tài này');
+    }
+
+    await this.studentThesisRoundRepository.remove(studentThesisRound);
+
+    return {
+      success: true,
+      message: 'Xóa học sinh khỏi đợt đề tài thành công'
     };
   }
 

@@ -3,6 +3,7 @@ import {
   Get, 
   Put, 
   Body, 
+  Query,
   UseGuards, 
   Request,
   BadRequestException
@@ -13,6 +14,7 @@ import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { TeacherService } from './teacher.service';
 import { UpdateTeacherInfoDto } from './dto/update-teacher-info.dto';
+import { GetThesisRoundsDto } from '../thesis/dto/thesis-round.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('teacher')
@@ -45,5 +47,32 @@ export class TeacherController {
       throw new BadRequestException('Không tìm thấy thông tin người dùng');
     }
     return this.teacherService.updateMyInfo(userId, updateDto);
+  }
+
+  // Lấy danh sách đợt tiểu luận
+  @Get('thesis-rounds')
+  @Roles(UserRole.TEACHER, UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async getThesisRounds(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetThesisRoundsDto
+  ) {
+    const userId = req.user.userId;
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+    return this.teacherService.getThesisRounds(userId, query);
+  }
+
+  // Lấy bộ môn của giáo viên
+  @Get('department')
+  @Roles(UserRole.TEACHER, UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async getMyDepartment(@Request() req: AuthenticatedRequest) {
+    const userId = req.user.userId;
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+    return this.teacherService.getMyDepartment(userId);
   }
 }

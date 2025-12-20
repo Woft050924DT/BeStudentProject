@@ -5,10 +5,11 @@ import { TeacherService } from './teacher.service';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Users } from '../user/user.entity';
 import { Department } from '../organization/entities/department.entity';
+import { ThesisRound } from '../thesis/entities/thesis-round.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Instructor, Users, Department])
+    TypeOrmModule.forFeature([Instructor, Users, Department, ThesisRound])
   ],
   controllers: [TeacherController],
   providers: [TeacherService],

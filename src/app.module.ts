@@ -16,6 +16,7 @@ import { ProposedTopic } from './thesis/entities/proposed-topic.entity';
 import { TopicRegistration } from './thesis/entities/topic-registration.entity';
 import { Thesis } from './thesis/entities/thesis.entity';
 import { ThesisRoundClass } from './thesis/entities/thesis-round-class.entity';
+import { StudentThesisRound } from './thesis/entities/student-thesis-round.entity';
 import { GuidanceProcess } from './thesis/entities/guidance-process.entity';
 import { WeeklyReport } from './thesis/entities/weekly-report.entity';
 import { SupervisionComment } from './thesis/entities/supervision-comment.entity';
@@ -68,6 +69,7 @@ import { ThesisModule } from './thesis/thesis.module';
         TopicRegistration,
         Thesis,
         ThesisRoundClass,
+        StudentThesisRound,
         GuidanceProcess,
         WeeklyReport,
         SupervisionComment,

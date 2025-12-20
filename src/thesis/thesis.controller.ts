@@ -3,6 +3,7 @@ import {
   Post, 
   Get, 
   Put, 
+  Delete,
   Body, 
   Param, 
   Query, 
@@ -20,6 +21,8 @@ import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsD
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
+import { AddClassToRoundDto, AddMultipleClassesToRoundDto } from './dto/thesis-round-class.dto';
+import { AddStudentToRoundDto, AddMultipleStudentsToRoundDto } from './dto/thesis-round-student.dto';
 import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
 import { UpdateHeadProfileDto } from './dto/head-profile.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
@@ -187,12 +190,17 @@ export class ThesisController {
     return this.thesisService.requestOpenThesisRound(userId, requestDto);
   }
 
-  // Tạo đợt luận văn (chỉ trưởng bộ môn)
+  // Tạo đợt luận văn (trưởng bộ môn và giáo viên)
   @Post('thesis-rounds')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
-  async createThesisRound(@Body() createDto: CreateThesisRoundDto) {
-    return this.thesisService.createThesisRound(createDto);
+  async createThesisRound(
+    @Request() req: AuthenticatedRequest,
+    @Body() createDto: CreateThesisRoundDto
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.createThesisRound(createDto, userId, userRole);
   }
 
   // Cập nhật đợt luận văn (chỉ trưởng bộ môn)
@@ -206,30 +214,30 @@ export class ThesisController {
     return this.thesisService.updateThesisRound(id, updateDto);
   }
 
-  // Thêm một giảng viên vào đợt đề tài (chỉ trưởng bộ môn)
+  // Thêm một giảng viên vào đợt đề tài (trưởng bộ môn và giáo viên)
   @Post('thesis-rounds/:roundId/instructors')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async addInstructorToRound(
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Body() addDto: AddInstructorToRoundDto
   ) {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const userRole = req.user.role;
     return this.thesisService.addInstructorToRound(roundId, addDto, userId, userRole);
   }
 
-  // Thêm nhiều giảng viên vào đợt đề tài (chỉ trưởng bộ môn)
+  // Thêm nhiều giảng viên vào đợt đề tài (trưởng bộ môn và giáo viên)
   @Post('thesis-rounds/:roundId/instructors/bulk')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async addMultipleInstructorsToRound(
     @Request() req: AuthenticatedRequest,
     @Param('roundId', ParseIntPipe) roundId: number,
     @Body() addDto: AddMultipleInstructorsDto
   ) {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const userRole = req.user.role;
 
     console.log('=== CONTROLLER DEBUG ===');
@@ -261,7 +269,7 @@ export class ThesisController {
     @Param('instructorId', ParseIntPipe) instructorId: number,
     @Body() updateDto: UpdateInstructorInRoundDto
   ) {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const userRole = req.user.role;
     return this.thesisService.updateInstructorInRound(roundId, instructorId, updateDto, userId, userRole);
   }
@@ -275,9 +283,113 @@ export class ThesisController {
     @Param('roundId', ParseIntPipe) roundId: number,
     @Param('instructorId', ParseIntPipe) instructorId: number
   ) {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     const userRole = req.user.role;
     return this.thesisService.removeInstructorFromRound(roundId, instructorId, userId, userRole);
+  }
+
+  // ==================== QUẢN LÝ LỚP TRONG ĐỢT ====================
+
+  // Thêm một lớp vào đợt đề tài (trưởng bộ môn và giáo viên)
+  @Post('thesis-rounds/:roundId/classes')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async addClassToRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Body() addDto: AddClassToRoundDto
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.addClassToRound(roundId, addDto, userId, userRole);
+  }
+
+  // Thêm nhiều lớp vào đợt đề tài (trưởng bộ môn và giáo viên)
+  @Post('thesis-rounds/:roundId/classes/bulk')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async addMultipleClassesToRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Body() addDto: AddMultipleClassesToRoundDto
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.addMultipleClassesToRound(roundId, addDto, userId, userRole);
+  }
+
+  // Lấy danh sách lớp trong đợt đề tài (tất cả user)
+  @Get('thesis-rounds/:roundId/classes')
+  async getClassesInRound(
+    @Param('roundId', ParseIntPipe) roundId: number
+  ) {
+    return this.thesisService.getClassesInRound(roundId);
+  }
+
+  // Xóa lớp khỏi đợt đề tài (trưởng bộ môn và giáo viên)
+  @Delete('thesis-rounds/:roundId/classes/:classId')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async removeClassFromRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Param('classId', ParseIntPipe) classId: number
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.removeClassFromRound(roundId, classId, userId, userRole);
+  }
+
+  // ==================== QUẢN LÝ HỌC SINH TRONG ĐỢT ====================
+
+  // Thêm một học sinh vào đợt đề tài (trưởng bộ môn và giáo viên)
+  @Post('thesis-rounds/:roundId/students')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async addStudentToRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Body() addDto: AddStudentToRoundDto
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.addStudentToRound(roundId, addDto, userId, userRole);
+  }
+
+  // Thêm nhiều học sinh vào đợt đề tài (trưởng bộ môn và giáo viên)
+  @Post('thesis-rounds/:roundId/students/bulk')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async addMultipleStudentsToRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Body() addDto: AddMultipleStudentsToRoundDto
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.addMultipleStudentsToRound(roundId, addDto, userId, userRole);
+  }
+
+  // Lấy danh sách học sinh trong đợt đề tài (tất cả user)
+  @Get('thesis-rounds/:roundId/students')
+  async getStudentsInRound(
+    @Param('roundId', ParseIntPipe) roundId: number
+  ) {
+    return this.thesisService.getStudentsInRound(roundId);
+  }
+
+  // Xóa học sinh khỏi đợt đề tài (trưởng bộ môn và giáo viên)
+  @Delete('thesis-rounds/:roundId/students/:studentId')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async removeStudentFromRound(
+    @Request() req: AuthenticatedRequest,
+    @Param('roundId', ParseIntPipe) roundId: number,
+    @Param('studentId', ParseIntPipe) studentId: number
+  ) {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    return this.thesisService.removeStudentFromRound(roundId, studentId, userId, userRole);
   }
 
   // ==================== TRƯỞNG BỘ MÔN ====================

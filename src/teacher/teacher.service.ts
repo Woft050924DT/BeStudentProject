@@ -4,7 +4,9 @@ import { Repository } from 'typeorm';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Users } from '../user/user.entity';
 import { Department } from '../organization/entities/department.entity';
+import { ThesisRound } from '../thesis/entities/thesis-round.entity';
 import { UpdateTeacherInfoDto } from './dto/update-teacher-info.dto';
+import { GetThesisRoundsDto } from '../thesis/dto/thesis-round.dto';
 
 @Injectable()
 export class TeacherService {
@@ -15,6 +17,8 @@ export class TeacherService {
     private readonly userRepository: Repository<Users>,
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
+    @InjectRepository(ThesisRound)
+    private readonly thesisRoundRepository: Repository<ThesisRound>,
   ) {}
 
   // Lấy thông tin giảng viên theo userId
@@ -359,6 +363,193 @@ export class TeacherService {
           avatar: updatedInstructor.user.avatar,
           address: updatedInstructor.user.address
         }
+      }
+    };
+  }
+
+  // Lấy danh sách đợt tiểu luận cho giáo viên
+  async getThesisRounds(userId: number, query: GetThesisRoundsDto) {
+    // Lấy thông tin instructor để biết department của giáo viên
+    const instructor = await this.instructorRepository.findOne({
+      where: { userId },
+      relations: ['department']
+    });
+
+    const { 
+      thesisTypeId, 
+      departmentId, 
+      facultyId, 
+      status, 
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = query;
+
+    const queryBuilder = this.thesisRoundRepository
+      .createQueryBuilder('thesisRound')
+      .leftJoinAndSelect('thesisRound.thesisType', 'thesisType')
+      .leftJoinAndSelect('thesisRound.department', 'department')
+      .leftJoinAndSelect('thesisRound.faculty', 'faculty');
+
+    // Tự động filter theo department của giáo viên nếu có
+    if (instructor && instructor.departmentId) {
+      queryBuilder.andWhere('thesisRound.departmentId = :teacherDepartmentId', { 
+        teacherDepartmentId: instructor.departmentId 
+      });
+    }
+
+    // Áp dụng filters từ query
+    if (thesisTypeId) {
+      queryBuilder.andWhere('thesisRound.thesisTypeId = :thesisTypeId', { thesisTypeId });
+    }
+
+    // Nếu có departmentId trong query, vẫn áp dụng (có thể là filter bổ sung)
+    if (departmentId) {
+      queryBuilder.andWhere('thesisRound.departmentId = :departmentId', { departmentId });
+    }
+
+    if (facultyId) {
+      queryBuilder.andWhere('thesisRound.facultyId = :facultyId', { facultyId });
+    }
+
+    if (status) {
+      queryBuilder.andWhere('thesisRound.status = :status', { status });
+    }
+
+    // Tìm kiếm theo tên hoặc mã đợt
+    if (search) {
+      queryBuilder.andWhere(
+        '(thesisRound.roundName ILIKE :search OR thesisRound.roundCode ILIKE :search)',
+        { search: `%${search}%` }
+      );
+    }
+
+    // Sắp xếp
+    const validSortFields: string[] = ['createdAt', 'roundName', 'startDate', 'endDate', 'id'];
+    let sortField = 'createdAt';
+    if (sortBy && typeof sortBy === 'string' && validSortFields.includes(sortBy)) {
+      sortField = sortBy;
+    }
+    
+    let finalSortOrder: 'ASC' | 'DESC' = 'DESC';
+    if (sortOrder && sortOrder === 'ASC') {
+      finalSortOrder = 'ASC';
+    }
+    
+    queryBuilder.orderBy(`thesisRound.${sortField}`, finalSortOrder);
+    
+    if (sortField !== 'id') {
+      queryBuilder.addOrderBy('thesisRound.id', 'DESC');
+    }
+
+    // Phân trang
+    const finalPage: number = page || 1;
+    const finalLimit: number = limit || 10;
+    const skipCount: number = (finalPage - 1) * finalLimit;
+    queryBuilder.skip(skipCount).take(finalLimit);
+
+    // Thực hiện query
+    const [thesisRounds, total] = await queryBuilder.getManyAndCount();
+
+    // Tính toán thông tin phân trang
+    const totalPages = Math.ceil(total / finalLimit);
+    const hasNextPage = finalPage < totalPages;
+    const hasPrevPage = finalPage > 1;
+
+    return {
+      success: true,
+      data: thesisRounds.map(round => ({
+        id: round.id,
+        roundCode: round.roundCode,
+        roundName: round.roundName,
+        thesisType: round.thesisType ? {
+          id: round.thesisType.id,
+          typeCode: round.thesisType.typeCode,
+          typeName: round.thesisType.typeName
+        } : null,
+        department: round.department ? {
+          id: round.department.id,
+          departmentCode: round.department.departmentCode,
+          departmentName: round.department.departmentName
+        } : null,
+        faculty: round.faculty ? {
+          id: round.faculty.id,
+          facultyCode: round.faculty.facultyCode,
+          facultyName: round.faculty.facultyName
+        } : null,
+        academicYear: round.academicYear,
+        semester: round.semester,
+        startDate: round.startDate,
+        endDate: round.endDate,
+        topicProposalDeadline: round.topicProposalDeadline,
+        registrationDeadline: round.registrationDeadline,
+        reportSubmissionDeadline: round.reportSubmissionDeadline,
+        status: round.status,
+        createdAt: round.createdAt,
+        updatedAt: round.updatedAt
+      })),
+      pagination: {
+        currentPage: finalPage,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: finalLimit,
+        hasNextPage,
+        hasPrevPage
+      }
+    };
+  }
+
+  // Lấy bộ môn của giáo viên
+  async getMyDepartment(userId: number) {
+    const instructor = await this.instructorRepository.findOne({
+      where: { userId },
+      relations: ['department', 'department.faculty']
+    });
+
+    if (!instructor) {
+      throw new NotFoundException('Không tìm thấy thông tin giảng viên');
+    }
+
+    if (!instructor.department) {
+      return {
+        success: true,
+        data: null,
+        message: 'Bạn chưa được gán vào bộ môn nào. Vui lòng liên hệ quản trị viên.'
+      };
+    }
+
+    const department = await this.departmentRepository.findOne({
+      where: { id: instructor.departmentId },
+      relations: ['faculty', 'head', 'head.user']
+    });
+
+    if (!department) {
+      throw new NotFoundException('Không tìm thấy thông tin bộ môn');
+    }
+
+    return {
+      success: true,
+      data: {
+        id: department.id,
+        departmentCode: department.departmentCode,
+        departmentName: department.departmentName,
+        description: department.description,
+        status: department.status,
+        faculty: department.faculty ? {
+          id: department.faculty.id,
+          facultyCode: department.faculty.facultyCode,
+          facultyName: department.faculty.facultyName
+        } : null,
+        head: department.head ? {
+          id: department.head.id,
+          instructorCode: department.head.instructorCode,
+          fullName: department.head.user?.fullName || null,
+          email: department.head.user?.email || null
+        } : null,
+        createdAt: department.createdAt,
+        updatedAt: department.updatedAt
       }
     };
   }

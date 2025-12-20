@@ -13,6 +13,7 @@ import { ProposedTopic } from './entities/proposed-topic.entity';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { Thesis } from './entities/thesis.entity';
 import { ThesisRoundClass } from './entities/thesis-round-class.entity';
+import { StudentThesisRound } from './entities/student-thesis-round.entity';
 import { GuidanceProcess } from './entities/guidance-process.entity';
 import { WeeklyReport } from './entities/weekly-report.entity';
 import { SupervisionComment } from './entities/supervision-comment.entity';
@@ -45,6 +46,7 @@ import { Users } from '../user/user.entity';
       TopicRegistration,
       Thesis,
       ThesisRoundClass,
+      StudentThesisRound,
       GuidanceProcess,
       WeeklyReport,
       SupervisionComment,
