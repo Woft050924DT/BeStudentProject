@@ -1092,6 +1092,16 @@ export class ThesisService {
 
     const savedRound = await this.thesisRoundRepository.save(thesisRound);
 
+    // Tự động tạo yêu cầu gửi cho trưởng bộ môn sau khi tạo đợt tiểu luận thành công
+    if (finalDepartmentId && userId) {
+      try {
+        await this.createRequestForHeadOfDepartment(savedRound, userId);
+      } catch (error) {
+        // Log lỗi nhưng không throw để không ảnh hưởng đến việc tạo đợt tiểu luận
+        console.error('Error creating request for head of department:', error);
+      }
+    }
+
     return {
       success: true,
       message: 'Tạo đợt luận văn thành công',
@@ -1102,12 +1112,17 @@ export class ThesisService {
   // Cập nhật đợt đề tài
   async updateThesisRound(roundId: number, updateDto: UpdateThesisRoundDto) {
     const thesisRound = await this.thesisRoundRepository.findOne({
-      where: { id: roundId }
+      where: { id: roundId },
+      relations: ['thesisType', 'department', 'faculty']
     });
 
     if (!thesisRound) {
       throw new NotFoundException('Đợt luận văn không tồn tại');
     }
+
+    // Lưu trạng thái cũ để so sánh
+    const oldStatus = thesisRound.status;
+    const newStatus = updateDto.status;
 
     // Cập nhật thông tin
     await this.thesisRoundRepository.update(roundId, updateDto);
@@ -1116,6 +1131,59 @@ export class ThesisService {
       where: { id: roundId },
       relations: ['thesisType', 'department', 'faculty']
     });
+
+    // Nếu status thay đổi từ "Preparing" sang "In Progress" (mở đợt)
+    if (oldStatus === 'Preparing' && newStatus === 'In Progress') {
+      // Lấy tất cả giáo viên trong đợt
+      const instructorAssignments = await this.instructorAssignmentRepository.find({
+        where: { 
+          thesisRoundId: roundId,
+          status: true // Chỉ lấy giáo viên đang hoạt động
+        },
+        relations: ['instructor', 'instructor.user']
+      });
+
+      // Gửi thông báo cho tất cả giáo viên trong đợt
+      for (const assignment of instructorAssignments) {
+        if (assignment.instructor?.user?.id) {
+          try {
+            await this.socketGateway.sendToUser(
+              assignment.instructor.user.id.toString(),
+              'thesis_round_opened',
+              {
+                thesisRoundId: roundId,
+                roundCode: updatedRound?.roundCode || thesisRound.roundCode,
+                roundName: updatedRound?.roundName || thesisRound.roundName,
+                message: `Đợt luận văn "${updatedRound?.roundName || thesisRound.roundName}" đã được mở. Bạn có thể bắt đầu nhận đăng ký đề tài từ sinh viên.`,
+                status: 'In Progress',
+                openedAt: new Date().toISOString()
+              }
+            );
+          } catch (socketError) {
+            console.error(`Error sending socket notification to instructor ${assignment.instructor.user.id}:`, socketError);
+          }
+        }
+      }
+
+      // Gửi thông báo đến room của đợt luận văn
+      try {
+        await this.socketGateway.sendToThesisRound(
+          roundId,
+          'thesis_round_status_updated',
+          {
+            thesisRoundId: roundId,
+            roundCode: updatedRound?.roundCode || thesisRound.roundCode,
+            roundName: updatedRound?.roundName || thesisRound.roundName,
+            oldStatus: oldStatus,
+            newStatus: newStatus,
+            message: `Đợt luận văn "${updatedRound?.roundName || thesisRound.roundName}" đã được mở`,
+            updatedAt: new Date().toISOString()
+          }
+        );
+      } catch (socketError) {
+        console.error('Error sending socket notification to thesis round room:', socketError);
+      }
+    }
 
     return {
       success: true,
@@ -2245,6 +2313,94 @@ export class ThesisService {
         createdAt: requestWithRelations.createdAt
       }
     };
+  }
+
+  // Tạo yêu cầu tự động cho trưởng bộ môn sau khi tạo đợt tiểu luận
+  private async createRequestForHeadOfDepartment(thesisRound: ThesisRound, requestedByUserId: number) {
+    // Kiểm tra bộ môn có trưởng bộ môn không
+    if (!thesisRound.departmentId) {
+      return; // Không có departmentId thì không tạo request
+    }
+
+    const department = await this.departmentRepository.findOne({
+      where: { id: thesisRound.departmentId },
+      relations: ['head', 'head.user']
+    });
+
+    if (!department) {
+      return; // Không tìm thấy department thì không tạo request
+    }
+
+    if (!department.head || !department.head.user) {
+      // Không có trưởng bộ môn, không tạo request
+      return;
+    }
+
+    // Kiểm tra xem đã có request với roundCode này chưa (trạng thái Pending)
+    const existingRequest = await this.thesisRoundRequestRepository.findOne({
+      where: { roundCode: thesisRound.roundCode, status: 'Pending' }
+    });
+
+    if (existingRequest) {
+      // Đã có request đang chờ phê duyệt, không tạo mới
+      return;
+    }
+
+    // Tạo yêu cầu
+    const request = this.thesisRoundRequestRepository.create({
+      roundCode: thesisRound.roundCode,
+      roundName: thesisRound.roundName,
+      thesisTypeId: thesisRound.thesisTypeId,
+      departmentId: thesisRound.departmentId,
+      facultyId: thesisRound.facultyId || undefined,
+      academicYear: thesisRound.academicYear || undefined,
+      semester: thesisRound.semester || undefined,
+      startDate: thesisRound.startDate || undefined,
+      endDate: thesisRound.endDate || undefined,
+      topicProposalDeadline: thesisRound.topicProposalDeadline || undefined,
+      registrationDeadline: thesisRound.registrationDeadline || undefined,
+      reportSubmissionDeadline: thesisRound.reportSubmissionDeadline || undefined,
+      guidanceProcess: thesisRound.guidanceProcess || undefined,
+      notes: thesisRound.notes || undefined,
+      requestedById: requestedByUserId,
+      status: 'Pending',
+      requestReason: 'Đợt tiểu luận đã được tạo, cần phê duyệt để mở đợt'
+    });
+
+    const savedRequest = await this.thesisRoundRequestRepository.save(request);
+
+    // Gửi thông báo real-time đến trưởng bộ môn
+    if (department.head.user.id) {
+      try {
+        const requestedByUser = await this.userRepository.findOne({
+          where: { id: requestedByUserId }
+        });
+
+        await this.socketGateway.sendToUser(
+          department.head.user.id.toString(),
+          'new_thesis_round_request',
+          {
+            requestId: savedRequest.id,
+            roundCode: savedRequest.roundCode,
+            roundName: savedRequest.roundName,
+            requestedBy: {
+              id: requestedByUser?.id || requestedByUserId,
+              fullName: requestedByUser?.fullName || 'N/A',
+              email: requestedByUser?.email || 'N/A'
+            },
+            department: {
+              id: department.id,
+              departmentName: department.departmentName
+            },
+            requestedAt: savedRequest.createdAt,
+            message: 'Có đợt tiểu luận mới được tạo, cần bạn phê duyệt'
+          }
+        );
+      } catch (socketError) {
+        console.error('Error sending socket notification to head of department:', socketError);
+        // Không throw error vì request đã được lưu thành công
+      }
+    }
   }
 
   // ==================== THÔNG TIN TRƯỞNG BỘ MÔN ====================

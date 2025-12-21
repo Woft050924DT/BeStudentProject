@@ -41,16 +41,7 @@ export class SocketGateway
 
   afterInit(server: Server) {
     this.logger.log('Socket.IO Gateway initialized');
-    
-    // Cấu hình Redis adapter cho Socket.IO
-    const { createAdapter } = require('@socket.io/redis-adapter');
-    const adapter = createAdapter(
-      this.redisService.getPublisher(),
-      this.redisService.getSubscriber(),
-    );
-    
-    // Thiết lập adapter cho server - trong Socket.IO v4, adapter là thuộc tính, không phải hàm
-    (server as any).adapter = adapter;
+    // Redis adapter được cấu hình trong RedisIoAdapter ở main.ts
   }
 
   async handleConnection(client: AuthenticatedSocket) {

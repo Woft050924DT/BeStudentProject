@@ -4,10 +4,15 @@ import { ValidationPipe } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 import { DocumentBuilder, SwaggerModule} from '@nestjs/swagger';
+import { RedisIoAdapter } from './socket/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
+
+  // Cấu hình Redis adapter cho Socket.IO
+  const redisIoAdapter = app.get(RedisIoAdapter);
+  app.useWebSocketAdapter(redisIoAdapter);
 
   const config = new DocumentBuilder()
     .setTitle('API Documentation')
