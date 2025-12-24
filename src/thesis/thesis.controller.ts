@@ -17,7 +17,7 @@ import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { ThesisService } from './thesis.service';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto } from './dto/register-topic.dto';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -25,6 +25,7 @@ import { AddClassToRoundDto, AddMultipleClassesToRoundDto } from './dto/thesis-r
 import { AddStudentToRoundDto, AddMultipleStudentsToRoundDto } from './dto/thesis-round-student.dto';
 import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
 import { UpdateHeadProfileDto } from './dto/head-profile.dto';
+import { AssignReviewerDto, AssignMultipleReviewersDto } from './dto/review-assignment.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('thesis')
@@ -394,6 +395,18 @@ export class ThesisController {
 
   // ==================== TRƯỞNG BỘ MÔN ====================
 
+  // Lấy tất cả đăng ký đề tài của sinh viên trong bộ môn
+  @Get('head/student-registrations')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async getAllStudentRegistrationsForHead(@Request() req: AuthenticatedRequest, @Query() query: GetAllStudentRegistrationsForHeadDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.getAllStudentRegistrationsForHeadByInstructorId(instructorId, query);
+  }
+
   // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
   @Get('head/pending-registrations')
   @Roles(UserRole.HEAD_OF_DEPARTMENT)
@@ -471,5 +484,31 @@ export class ThesisController {
         rejectedRegistrations: 0
       }
     };
+  }
+
+  // ==================== PHÂN CÔNG GIÁO VIÊN PHẢN BIỆN ====================
+
+  // Phân công một giáo viên phản biện cho một đề tài
+  @Post('head/assign-reviewer')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async assignReviewerToThesis(@Request() req: AuthenticatedRequest, @Body() assignDto: AssignReviewerDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.assignReviewerToThesis(instructorId, assignDto);
+  }
+
+  // Phân công nhiều giáo viên phản biện cho nhiều đề tài
+  @Post('head/assign-reviewers/bulk')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @UseGuards(RolesGuard)
+  async assignMultipleReviewersToTheses(@Request() req: AuthenticatedRequest, @Body() assignDto: AssignMultipleReviewersDto) {
+    const instructorId = req.user.instructorId;
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+    return this.thesisService.assignMultipleReviewersToTheses(instructorId, assignDto);
   }
 }

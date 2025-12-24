@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto } from './dto/register-topic.dto';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -9,6 +9,7 @@ import { AddClassToRoundDto, AddMultipleClassesToRoundDto } from './dto/thesis-r
 import { AddStudentToRoundDto, AddMultipleStudentsToRoundDto } from './dto/thesis-round-student.dto';
 import { RequestOpenRoundDto } from './dto/thesis-round-request.dto';
 import { UpdateHeadProfileDto } from './dto/head-profile.dto';
+import { AssignReviewerDto, AssignMultipleReviewersDto } from './dto/review-assignment.dto';
 import { TopicRegistration } from './entities/topic-registration.entity';
 import { ProposedTopic } from './entities/proposed-topic.entity';
 import { ThesisRound } from './entities/thesis-round.entity';
@@ -17,6 +18,8 @@ import { ThesisType } from './entities/thesis-type.entity';
 import { ThesisRoundRequest } from './entities/thesis-round-request.entity';
 import { ThesisRoundClass } from './entities/thesis-round-class.entity';
 import { StudentThesisRound } from './entities/student-thesis-round.entity';
+import { Thesis } from './entities/thesis.entity';
+import { ReviewAssignment } from './entities/review-assignment.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
@@ -51,6 +54,10 @@ export class ThesisService {
     private thesisRoundClassRepository: Repository<ThesisRoundClass>,
     @InjectRepository(StudentThesisRound)
     private studentThesisRoundRepository: Repository<StudentThesisRound>,
+    @InjectRepository(Thesis)
+    private thesisRepository: Repository<Thesis>,
+    @InjectRepository(ReviewAssignment)
+    private reviewAssignmentRepository: Repository<ReviewAssignment>,
     @InjectRepository(Users)
     private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
@@ -2042,6 +2049,133 @@ export class ThesisService {
     };
   }
 
+  // Lấy tất cả đăng ký đề tài của sinh viên trong bộ môn (trưởng bộ môn)
+  async getAllStudentRegistrationsForHeadByInstructorId(headInstructorId: number, query: GetAllStudentRegistrationsForHeadDto) {
+    // Lấy thông tin trưởng bộ môn và department
+    const instructor = await this.instructorRepository.findOne({
+      where: { id: headInstructorId },
+      relations: ['department']
+    });
+
+    if (!instructor || !instructor.departmentId) {
+      throw new NotFoundException('Không tìm thấy thông tin bộ môn');
+    }
+
+    // Kiểm tra xem có phải trưởng bộ môn không
+    const department = await this.departmentRepository.findOne({
+      where: { headId: headInstructorId }
+    });
+
+    if (!department) {
+      throw new ForbiddenException('Bạn không phải trưởng bộ môn');
+    }
+
+    return this.getAllStudentRegistrationsForHead(department.id, query);
+  }
+
+  // Lấy tất cả đăng ký đề tài của sinh viên trong bộ môn
+  async getAllStudentRegistrationsForHead(departmentId: number, query: GetAllStudentRegistrationsForHeadDto) {
+    const { thesisRoundId, instructorStatus, headStatus, page = 1, limit = 10 } = query;
+
+    const queryBuilder = this.topicRegistrationRepository
+      .createQueryBuilder('registration')
+      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('student.user', 'user')
+      .leftJoinAndSelect('student.classEntity', 'class')
+      .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
+      .leftJoinAndSelect('thesisRound.department', 'department')
+      .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
+      .leftJoinAndSelect('registration.instructor', 'instructor')
+      .leftJoinAndSelect('instructor.user', 'instructorUser')
+      .where('department.id = :departmentId', { departmentId });
+
+    // Filter theo đợt luận văn
+    if (thesisRoundId) {
+      queryBuilder.andWhere('registration.thesisRoundId = :thesisRoundId', { thesisRoundId });
+    }
+
+    // Filter theo trạng thái giáo viên
+    if (instructorStatus) {
+      queryBuilder.andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus });
+    }
+
+    // Filter theo trạng thái trưởng bộ môn
+    if (headStatus) {
+      queryBuilder.andWhere('registration.headStatus = :headStatus', { headStatus });
+    }
+
+    queryBuilder.orderBy('registration.registrationDate', 'DESC');
+
+    // Phân trang
+    const skip = (page - 1) * limit;
+    queryBuilder.skip(skip).take(limit);
+
+    const [registrations, total] = await queryBuilder.getManyAndCount();
+
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    return {
+      success: true,
+      data: registrations.map(registration => {
+        const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
+        
+        return {
+          id: registration.id,
+          student: {
+            id: registration.student?.id || null,
+            studentCode: registration.student?.studentCode || null,
+            fullName: registration.student?.user?.fullName || null,
+            email: registration.student?.user?.email || null,
+            phone: registration.student?.user?.phone || null,
+            class: registration.student?.classEntity ? {
+              id: registration.student.classEntity.id,
+              className: registration.student.classEntity.className,
+              classCode: registration.student.classEntity.classCode
+            } : null
+          },
+          thesisRound: registration.thesisRound ? {
+            id: registration.thesisRound.id,
+            roundName: registration.thesisRound.roundName,
+            roundCode: registration.thesisRound.roundCode,
+            status: registration.thesisRound.status
+          } : null,
+          proposedTopic: registration.proposedTopic ? {
+            id: registration.proposedTopic.id,
+            topicTitle: registration.proposedTopic.topicTitle,
+            topicCode: registration.proposedTopic.topicCode
+          } : null,
+          selfProposedTitle: registration.selfProposedTitle,
+          selfProposedDescription: registration.selfProposedDescription,
+          topicTitle: topicTitle,
+          selectionReason: registration.selectionReason,
+          instructor: {
+            id: registration.instructor?.id || null,
+            instructorCode: registration.instructor?.instructorCode || null,
+            fullName: registration.instructor?.user?.fullName || null,
+            email: registration.instructor?.user?.email || null
+          },
+          instructorStatus: registration.instructorStatus,
+          headStatus: registration.headStatus,
+          instructorRejectionReason: registration.instructorRejectionReason,
+          headRejectionReason: registration.headRejectionReason,
+          registrationDate: registration.registrationDate,
+          instructorApprovalDate: registration.instructorApprovalDate,
+          headApprovalDate: registration.headApprovalDate
+        };
+      }),
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: limit,
+        hasNextPage,
+        hasPrevPage
+      }
+    };
+  }
+
   // Trưởng bộ môn phê duyệt/từ chối đăng ký đề tài
   async approveTopicRegistrationByHead(headInstructorId: number, approveDto: ApproveTopicRegistrationByHeadDto) {
     const { registrationId, approved, rejectionReason } = approveDto;
@@ -2675,6 +2809,180 @@ export class ThesisService {
         } : null
       } : null,
       isFirstTime: true
+    };
+  }
+
+  // ==================== PHÂN CÔNG GIÁO VIÊN PHẢN BIỆN ====================
+
+  // Kiểm tra quyền trưởng bộ môn và kiểm tra thesis thuộc bộ môn của họ
+  private async checkHeadDepartmentPermissionForThesis(thesisId: number, headInstructorId: number): Promise<Thesis> {
+    // Lấy thông tin thesis
+    const thesis = await this.thesisRepository.findOne({
+      where: { id: thesisId },
+      relations: ['thesisRound', 'thesisRound.department', 'student', 'student.classEntity', 'student.classEntity.major', 'student.classEntity.major.department']
+    });
+
+    if (!thesis) {
+      throw new NotFoundException('Đề tài không tồn tại');
+    }
+
+    // Kiểm tra xem có phải trưởng bộ môn không
+    const department = await this.departmentRepository.findOne({
+      where: { headId: headInstructorId }
+    });
+
+    if (!department) {
+      throw new ForbiddenException('Bạn không phải trưởng bộ môn');
+    }
+
+    // Kiểm tra thesis thuộc bộ môn của trưởng bộ môn
+    // Có thể kiểm tra qua thesisRound.departmentId hoặc student.classEntity.major.departmentId
+    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+
+    if (!thesisDepartmentId || thesisDepartmentId !== department.id) {
+      throw new ForbiddenException('Đề tài này không thuộc bộ môn của bạn');
+    }
+
+    return thesis;
+  }
+
+  // Phân công một giáo viên phản biện cho một đề tài
+  async assignReviewerToThesis(headInstructorId: number, assignDto: AssignReviewerDto) {
+    const { thesisId, reviewerId, reviewOrder, reviewDeadline } = assignDto;
+
+    // Kiểm tra quyền và lấy thông tin thesis
+    const thesis = await this.checkHeadDepartmentPermissionForThesis(thesisId, headInstructorId);
+
+    // Kiểm tra giáo viên phản biện tồn tại
+    const reviewer = await this.instructorRepository.findOne({
+      where: { id: reviewerId },
+      relations: ['user', 'department']
+    });
+
+    if (!reviewer) {
+      throw new NotFoundException('Giáo viên phản biện không tồn tại');
+    }
+
+    // Kiểm tra giáo viên phản biện thuộc cùng bộ môn với đề tài
+    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+    if (thesisDepartmentId && reviewer.departmentId !== thesisDepartmentId) {
+      throw new BadRequestException('Giáo viên phản biện không thuộc bộ môn của đề tài này');
+    }
+
+    // Kiểm tra giáo viên phản biện không phải là giáo viên hướng dẫn của đề tài này
+    if (thesis.supervisorId === reviewerId) {
+      throw new BadRequestException('Giáo viên phản biện không thể là giáo viên hướng dẫn của đề tài này');
+    }
+
+    // Kiểm tra đã được phân công chưa
+    const existingAssignment = await this.reviewAssignmentRepository.findOne({
+      where: {
+        thesisId,
+        reviewerId
+      }
+    });
+
+    if (existingAssignment) {
+      throw new ConflictException('Giáo viên này đã được phân công phản biện cho đề tài này rồi');
+    }
+
+    // Xác định reviewOrder nếu không được cung cấp
+    let finalReviewOrder = reviewOrder;
+    if (!finalReviewOrder) {
+      // Lấy số lượng phản biện hiện tại của đề tài
+      const currentReviewersCount = await this.reviewAssignmentRepository.count({
+        where: { thesisId }
+      });
+      finalReviewOrder = currentReviewersCount + 1;
+    }
+
+    // Tạo phân công phản biện
+    const reviewAssignment = this.reviewAssignmentRepository.create({
+      thesisId,
+      reviewerId,
+      reviewOrder: finalReviewOrder,
+      reviewDeadline: reviewDeadline ? new Date(reviewDeadline) : undefined,
+      status: 'Pending Review',
+      assignmentDate: new Date()
+    });
+
+    await this.reviewAssignmentRepository.save(reviewAssignment);
+
+    // Lấy thông tin đầy đủ để trả về
+    const savedAssignment = await this.reviewAssignmentRepository.findOne({
+      where: { id: reviewAssignment.id },
+      relations: ['reviewer', 'reviewer.user', 'thesis', 'thesis.student', 'thesis.student.user']
+    });
+
+    if (!savedAssignment) {
+      throw new NotFoundException('Không thể lấy thông tin phân công phản biện sau khi tạo');
+    }
+
+    return {
+      success: true,
+      message: 'Phân công giáo viên phản biện thành công',
+      data: {
+        id: savedAssignment.id,
+        thesis: {
+          id: savedAssignment.thesis.id,
+          thesisCode: savedAssignment.thesis.thesisCode,
+          topicTitle: savedAssignment.thesis.topicTitle,
+          student: {
+            id: savedAssignment.thesis.student.id,
+            studentCode: savedAssignment.thesis.student.studentCode,
+            fullName: savedAssignment.thesis.student.user.fullName
+          }
+        },
+        reviewer: {
+          id: savedAssignment.reviewer.id,
+          instructorCode: savedAssignment.reviewer.instructorCode,
+          fullName: savedAssignment.reviewer.user.fullName,
+          email: savedAssignment.reviewer.user.email
+        },
+        reviewOrder: savedAssignment.reviewOrder,
+        reviewDeadline: savedAssignment.reviewDeadline,
+        status: savedAssignment.status,
+        assignmentDate: savedAssignment.assignmentDate
+      }
+    };
+  }
+
+  // Phân công nhiều giáo viên phản biện cho nhiều đề tài
+  async assignMultipleReviewersToTheses(headInstructorId: number, assignDto: AssignMultipleReviewersDto) {
+    const { assignments } = assignDto;
+
+    if (!assignments || assignments.length === 0) {
+      throw new BadRequestException('Danh sách phân công không được để trống');
+    }
+
+    const results: any[] = [];
+    const errors: Array<{ thesisId: number; reviewerId: number; error: string }> = [];
+
+    for (const assignment of assignments) {
+      try {
+        const result = await this.assignReviewerToThesis(headInstructorId, assignment);
+        results.push(result.data);
+      } catch (error) {
+        errors.push({
+          thesisId: assignment.thesisId,
+          reviewerId: assignment.reviewerId,
+          error: error instanceof Error ? error.message : 'Lỗi không xác định'
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: `Phân công thành công ${results.length} giáo viên phản biện${errors.length > 0 ? `, ${errors.length} phân công thất bại` : ''}`,
+      data: {
+        successful: results,
+        failed: errors.length > 0 ? errors : undefined,
+        summary: {
+          total: assignments.length,
+          successful: results.length,
+          failed: errors.length
+        }
+      }
     };
   }
 }
