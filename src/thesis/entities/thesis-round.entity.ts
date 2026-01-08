@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
 import { ThesisType } from './thesis-type.entity';
@@ -18,6 +19,8 @@ import { InstructorAssignment } from './instructor-assignment.entity';
 import { Thesis } from './thesis.entity';
 import { GuidanceProcess } from './guidance-process.entity';
 import { DefenseCouncil } from './defense-council.entity';
+import { ThesisRoundRule } from './thesis-round-rule.entity';
+import { ThesisGroup } from './thesis-group.entity';
 
 @Entity('thesis_rounds')
 export class ThesisRound {
@@ -122,4 +125,10 @@ export class ThesisRound {
 
   @OneToMany(() => DefenseCouncil, (defenseCouncil) => defenseCouncil.thesisRound)
   defenseCouncils: DefenseCouncil[];
+
+  @OneToOne(() => ThesisRoundRule, (rule) => rule.thesisRound)
+  rules?: ThesisRoundRule;
+
+  @OneToMany(() => ThesisGroup, (group) => group.thesisRound)
+  groups: ThesisGroup[];
 }

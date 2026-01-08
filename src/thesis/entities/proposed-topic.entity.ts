@@ -6,11 +6,13 @@ import {
   UpdateDateColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
 import { Instructor } from '../../instructor/entities/instructor.entity';
 import { ThesisRound } from './thesis-round.entity';
 import { TopicRegistration } from './topic-registration.entity';
+import { ProposedTopicRule } from './proposed-topic-rule.entity';
 
 @Entity('proposed_topics')
 export class ProposedTopic {
@@ -66,4 +68,7 @@ export class ProposedTopic {
 
   @OneToMany(() => TopicRegistration, (topicRegistration) => topicRegistration.proposedTopic)
   topicRegistrations: TopicRegistration[];
+
+  @OneToOne(() => ProposedTopicRule, (rule) => rule.proposedTopic)
+  rules?: ProposedTopicRule;
 }

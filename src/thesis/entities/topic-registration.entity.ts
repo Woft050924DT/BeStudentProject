@@ -3,22 +3,22 @@ import {
   Column,
   PrimaryGeneratedColumn,
   ManyToOne,
-  OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { Student } from '../../student/entities/student.entity';
 import { Instructor } from '../../instructor/entities/instructor.entity';
 import { ThesisRound } from './thesis-round.entity';
 import { ProposedTopic } from './proposed-topic.entity';
 import { Thesis } from './thesis.entity';
+import { ThesisGroup } from './thesis-group.entity';
 
 @Entity('topic_registrations')
 export class TopicRegistration {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ name: 'student_id' })
-  studentId: number;
+  @Column({ name: 'thesis_group_id' })
+  thesisGroupId: number;
 
   @Column({ name: 'thesis_round_id' })
   thesisRoundId: number;
@@ -38,33 +38,52 @@ export class TopicRegistration {
   @Column({ name: 'selection_reason', type: 'text', nullable: true })
   selectionReason?: string;
 
-  @Column({ 
-    name: 'instructor_status', 
-    length: 50, 
-    default: 'Pending',
-    transformer: {
-      to: (value: string) => value,
-      from: (value: string) => value
-    }
-  })
-  instructorStatus: string; // Pending, Approved, Rejected
+  @Column({ name: 'applied_group_mode', length: 20, nullable: true })
+  appliedGroupMode?: string;
 
-  @Column({ 
-    name: 'head_status', 
-    length: 50, 
-    default: 'Pending',
-    transformer: {
-      to: (value: string) => value,
-      from: (value: string) => value
-    }
+  @Column({ name: 'applied_min_members', type: 'int', nullable: true })
+  appliedMinMembers?: number;
+
+  @Column({ name: 'applied_max_members', type: 'int', nullable: true })
+  appliedMaxMembers?: number;
+
+  @Column({ name: 'rule_override_by', length: 20, nullable: true })
+  ruleOverrideBy?: string;
+
+  @Column({ name: 'rule_override_reason', type: 'text', nullable: true })
+  ruleOverrideReason?: string;
+
+  @Column({
+    name: 'instructor_status',
+    length: 50,
+    default: 'PENDING',
   })
-  headStatus: string; // Pending, Approved, Rejected
+  instructorStatus: string;
+
+  @Column({
+    name: 'head_status',
+    length: 50,
+    default: 'PENDING',
+  })
+  headStatus: string;
 
   @Column({ name: 'instructor_rejection_reason', type: 'text', nullable: true })
   instructorRejectionReason?: string;
 
   @Column({ name: 'head_rejection_reason', type: 'text', nullable: true })
   headRejectionReason?: string;
+
+  @Column({ name: 'head_override_group_mode', length: 20, nullable: true })
+  headOverrideGroupMode?: string;
+
+  @Column({ name: 'head_override_min_members', type: 'int', nullable: true })
+  headOverrideMinMembers?: number;
+
+  @Column({ name: 'head_override_max_members', type: 'int', nullable: true })
+  headOverrideMaxMembers?: number;
+
+  @Column({ name: 'head_override_reason', type: 'text', nullable: true })
+  headOverrideReason?: string;
 
   @Column({ name: 'registration_date', default: () => 'CURRENT_TIMESTAMP' })
   registrationDate: Date;
@@ -76,9 +95,9 @@ export class TopicRegistration {
   headApprovalDate?: Date;
 
   // Relations
-  @ManyToOne(() => Student)
-  @JoinColumn({ name: 'student_id' })
-  student: Student;
+  @ManyToOne(() => ThesisGroup, (group) => group.topicRegistrations)
+  @JoinColumn({ name: 'thesis_group_id' })
+  thesisGroup: ThesisGroup;
 
   @ManyToOne(() => ThesisRound)
   @JoinColumn({ name: 'thesis_round_id' })
@@ -92,6 +111,6 @@ export class TopicRegistration {
   @JoinColumn({ name: 'proposed_topic_id' })
   proposedTopic?: ProposedTopic;
 
-  @OneToMany(() => Thesis, (thesis) => thesis.topicRegistration)
-  theses: Thesis[];
+  @OneToOne(() => Thesis, (thesis) => thesis.topicRegistration)
+  thesis?: Thesis;
 }

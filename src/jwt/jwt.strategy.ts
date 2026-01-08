@@ -13,9 +13,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private userService: UserService,
     private redisService: RedisService,
   ) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+     
     super({
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+       
       jwtFromRequest: ExtractJwt.fromExtractors([
         ExtractJwt.fromAuthHeaderAsBearerToken(),
         (request: Request) => {

@@ -59,9 +59,10 @@ export class AuthService {
       username,
       password,
       fullName,
-      role: userRole.toUpperCase(),
       status: true,
     });
+
+    await this.userService.setPrimaryRole(user.id, userRole);
 
     return {
       message:
@@ -176,7 +177,7 @@ export class AuthService {
 
   // Tạo payload cho JWT token
   private async createTokenPayload(user: Users): Promise<TokenPayload> {
-    const userRole = user.role ? [user.role.toLowerCase()] : ['student'];
+    const userRole = (await this.userService.getUserRoles(user.id)) || ['student'];
 
     const payload: TokenPayload = {
       sub: user.id.toString(),
@@ -186,29 +187,25 @@ export class AuthService {
     };
 
     // Kiểm tra và thêm studentId hoặc instructorId dựa vào role
-    if (user.role) {
-      // Nhóm STUDENT - cần studentId
-      if (this.isStudentRole(user.role)) {
-        try {
-          const student = await this.studentService.getStudentByUserId(user.id);
-          if (student && student.id) {
-            payload.studentId = student.id;
-          }
-        } catch {
-          // Student chưa được tạo, bỏ qua
+    if (userRole.some((r) => this.isStudentRole(r))) {
+      try {
+        const student = await this.studentService.getStudentByUserId(user.id);
+        if (student && student.id) {
+          payload.studentId = student.id;
         }
+      } catch {
+        // Student chưa được tạo, bỏ qua
       }
+    }
 
-      // Nhóm INSTRUCTOR - cần instructorId (TEACHER và HEAD_OF_DEPARTMENT)
-      if (this.isInstructorRole(user.role)) {
-        try {
-          const instructor = await this.instructorService.getInstructorByUserId(user.id);
-          if (instructor && instructor.id) {
-            payload.instructorId = instructor.id;
-          }
-        } catch {
-          // Instructor chưa được tạo, bỏ qua
+    if (userRole.some((r) => this.isInstructorRole(r))) {
+      try {
+        const instructor = await this.instructorService.getInstructorByUserId(user.id);
+        if (instructor && instructor.id) {
+          payload.instructorId = instructor.id;
         }
+      } catch {
+        // Instructor chưa được tạo, bỏ qua
       }
     }
 
@@ -220,7 +217,7 @@ export class AuthService {
     const secret = this.configService.get<string>('JWT_SECRET') || 'default-secret';
     const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN') || '1h';
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return this.jwtService.sign(payload as any, {
       secret,
       expiresIn,
@@ -234,7 +231,7 @@ export class AuthService {
       || 'default-refresh-secret';
     const expiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return this.jwtService.sign({ sub: payload.sub } as any, {
       secret,
       expiresIn,
@@ -248,7 +245,6 @@ export class AuthService {
     }
 
     const payload = await this.createTokenPayload(user);
-    const userRole = user.role ? [user.role.toLowerCase()] : ['student'];
 
     return {
       access_token: this.generateAccessToken(payload),
@@ -258,7 +254,7 @@ export class AuthService {
         email: user.email,
         username: user.username,
         fullName: user.fullName,
-        roles: userRole,
+        roles: payload.roles || [],
       },
     };
   }

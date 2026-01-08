@@ -41,7 +41,7 @@ export class AdminController {
     @Body() createUserDto: CreateUserDto,
     @Request() req: any,
   ) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+     
     const assignedBy = req.user?.userId as number | undefined;
     const user = await this.userService.createUserWithRole(createUserDto, assignedBy);
     
@@ -64,14 +64,17 @@ export class AdminController {
     const users = await this.userService.getAllUsersWithRoles();
     return {
       message: 'Lấy danh sách người dùng thành công',
-      users: users.map(user => ({
+      users: await Promise.all(users.map(async (user) => {
+        const roles = await this.userService.getUserRoles(user.id);
+        return {
         id: user.id,
         username: user.username,
         email: user.email,
         fullName: user.fullName,
         status: user.status,
-        role: user.role || null,
+        role: roles[0] || null,
         createdAt: user.createdAt,
+        };
       })),
     };
   }
@@ -84,6 +87,7 @@ export class AdminController {
     if (!user) {
       return { message: 'Không tìm thấy người dùng' };
     }
+    const roles = await this.userService.getUserRoles(user.id);
 
     return {
       message: 'Lấy thông tin người dùng thành công',
@@ -98,7 +102,7 @@ export class AdminController {
         address: user.address,
         avatar: user.avatar,
         status: user.status,
-        role: user.role,
+        role: roles[0] || null,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
@@ -139,13 +143,14 @@ export class AdminController {
     if (!user) {
       return { message: 'Không tìm thấy người dùng' };
     }
+    const roles = await this.userService.getUserRoles(user.id);
 
     return {
       message: 'Cập nhật role thành công',
       user: {
         id: user.id,
         username: user.username,
-        role: user.role,
+        role: roles[0] || null,
         updatedAt: user.updatedAt,
       },
     };
@@ -173,13 +178,14 @@ export class AdminController {
     if (!user) {
       return { message: 'Không tìm thấy người dùng' };
     }
+    const roles = await this.userService.getUserRoles(user.id);
     
     return {
       message: `Đã thay đổi role thành ${body.role}`,
       user: {
         id: user.id,
         username: user.username,
-        role: user.role,
+        role: roles[0] || null,
       },
     };
   }
@@ -207,27 +213,23 @@ export class AdminController {
   @Roles(UserRole.ADMIN)
   async getUserStatistics() {
     const allUsers = await this.userService.getAllUsersWithRoles();
+    const usersWithRoles = await Promise.all(
+      allUsers.map(async (u) => ({
+        status: u.status,
+        roles: await this.userService.getUserRoles(u.id),
+      })),
+    );
     
     const statistics = {
       totalUsers: allUsers.length,
       activeUsers: allUsers.filter(user => user.status).length,
       inactiveUsers: allUsers.filter(user => !user.status).length,
       usersByRole: {
-        [UserRole.ADMIN]: allUsers.filter(user => 
-          user.role?.toUpperCase() === UserRole.ADMIN && user.status
-        ).length,
-        [UserRole.TEACHER]: allUsers.filter(user => 
-          user.role?.toUpperCase() === UserRole.TEACHER && user.status
-        ).length,
-        [UserRole.STUDENT]: allUsers.filter(user => 
-          user.role?.toUpperCase() === UserRole.STUDENT && user.status
-        ).length,
-        [UserRole.ACADEMIC_STAFF]: allUsers.filter(user => 
-          user.role?.toUpperCase() === UserRole.ACADEMIC_STAFF && user.status
-        ).length,
-        [UserRole.HEAD_OF_DEPARTMENT]: allUsers.filter(user => 
-          user.role?.toUpperCase() === UserRole.HEAD_OF_DEPARTMENT && user.status
-        ).length,
+        [UserRole.ADMIN]: usersWithRoles.filter(u => u.status && u.roles.includes(UserRole.ADMIN)).length,
+        [UserRole.TEACHER]: usersWithRoles.filter(u => u.status && u.roles.includes(UserRole.TEACHER)).length,
+        [UserRole.STUDENT]: usersWithRoles.filter(u => u.status && u.roles.includes(UserRole.STUDENT)).length,
+        [UserRole.ACADEMIC_STAFF]: usersWithRoles.filter(u => u.status && u.roles.includes(UserRole.ACADEMIC_STAFF)).length,
+        [UserRole.HEAD_OF_DEPARTMENT]: usersWithRoles.filter(u => u.status && u.roles.includes(UserRole.HEAD_OF_DEPARTMENT)).length,
       },
     };
 

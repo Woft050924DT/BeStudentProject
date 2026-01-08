@@ -20,6 +20,8 @@ import { ThesisRoundClass } from './entities/thesis-round-class.entity';
 import { StudentThesisRound } from './entities/student-thesis-round.entity';
 import { Thesis } from './entities/thesis.entity';
 import { ReviewAssignment } from './entities/review-assignment.entity';
+import { ThesisGroup } from './entities/thesis-group.entity';
+import { ThesisGroupMember } from './entities/thesis-group-member.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
@@ -58,10 +60,80 @@ export class ThesisService {
     private thesisRepository: Repository<Thesis>,
     @InjectRepository(ReviewAssignment)
     private reviewAssignmentRepository: Repository<ReviewAssignment>,
+    @InjectRepository(ThesisGroup)
+    private thesisGroupRepository: Repository<ThesisGroup>,
+    @InjectRepository(ThesisGroupMember)
+    private thesisGroupMemberRepository: Repository<ThesisGroupMember>,
     @InjectRepository(Users)
     private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
   ) {}
+
+  private makeIndividualGroupCode(thesisRoundId: number, studentId: number): string {
+    const roundPart = thesisRoundId.toString(36);
+    const studentPart = studentId.toString(36);
+    const code = `I${roundPart}_${studentPart}`.toUpperCase();
+    return code.length <= 20 ? code : code.slice(0, 20);
+  }
+
+  private async ensureIndividualGroup(studentId: number, thesisRoundId: number): Promise<ThesisGroup> {
+    const existingGroup = await this.thesisGroupRepository.findOne({
+      where: {
+        thesisRoundId,
+        createdBy: studentId,
+        groupType: 'INDIVIDUAL',
+      },
+    });
+
+    if (existingGroup) {
+      const existingMember = await this.thesisGroupMemberRepository.findOne({
+        where: { thesisGroupId: existingGroup.id, studentId },
+      });
+
+      if (!existingMember) {
+        await this.thesisGroupMemberRepository.save(
+          this.thesisGroupMemberRepository.create({
+            thesisGroupId: existingGroup.id,
+            thesisRoundId,
+            studentId,
+            role: 'SOLO',
+            joinMethod: 'AUTO',
+            isActive: true,
+            joinedAt: new Date(),
+          }),
+        );
+      }
+
+      return existingGroup;
+    }
+
+    const newGroup = this.thesisGroupRepository.create({
+      groupCode: this.makeIndividualGroupCode(thesisRoundId, studentId),
+      thesisRoundId,
+      groupType: 'INDIVIDUAL',
+      createdBy: studentId,
+      minMembers: 1,
+      maxMembers: 1,
+      currentMembers: 1,
+      status: 'READY',
+    });
+
+    const savedGroup = await this.thesisGroupRepository.save(newGroup);
+
+    await this.thesisGroupMemberRepository.save(
+      this.thesisGroupMemberRepository.create({
+        thesisGroupId: savedGroup.id,
+        thesisRoundId,
+        studentId,
+        role: 'SOLO',
+        joinMethod: 'AUTO',
+        isActive: true,
+        joinedAt: new Date(),
+      }),
+    );
+
+    return savedGroup;
+  }
 
   // Lấy studentId từ userId
   async getStudentIdByUserId(userId: number): Promise<number | null> {
@@ -169,19 +241,19 @@ export class ThesisService {
       throw new NotFoundException('Giảng viên không tồn tại');
     }
 
+    const thesisGroup = await this.ensureIndividualGroup(studentId, thesisRoundId);
+
     const existingRegistration = await this.topicRegistrationRepository.findOne({
     where: {
-      studentId,
+      thesisGroupId: thesisGroup.id,
       thesisRoundId
     },
-    relations: ['student', 'student.user'] 
   });
 
   if (existingRegistration) {
     console.log('Existing registration found:', {
       registrationId: existingRegistration.id,
-      studentId: existingRegistration.studentId,
-      userId: existingRegistration.student?.user?.id,
+      thesisGroupId: existingRegistration.thesisGroupId,
       thesisRoundId: existingRegistration.thesisRoundId
     });
     
@@ -222,7 +294,7 @@ export class ThesisService {
 
     // Tạo đăng ký đề tài
     const topicRegistration = this.topicRegistrationRepository.create({
-      studentId,
+      thesisGroupId: thesisGroup.id,
       thesisRoundId,
       instructorId,
       proposedTopicId,
@@ -260,9 +332,7 @@ export class ThesisService {
     const registrationWithRelations = await this.topicRegistrationRepository.findOne({
       where: { id: savedRegistration.id },
       relations: [
-        'student',
-        'student.user',
-        'student.classEntity',
+        'thesisGroup',
         'thesisRound',
         'proposedTopic',
         'instructor',
@@ -279,16 +349,17 @@ export class ThesisService {
       message: 'Đăng ký đề tài thành công',
       data: {
         id: registrationWithRelations.id,
+        thesisGroupId: registrationWithRelations.thesisGroupId,
         student: {
-          id: registrationWithRelations.student?.id || null,
-          studentCode: registrationWithRelations.student?.studentCode || null,
-          fullName: registrationWithRelations.student?.user?.fullName || null,
-          email: registrationWithRelations.student?.user?.email || null,
-          phone: registrationWithRelations.student?.user?.phone || null,
-          class: registrationWithRelations.student?.classEntity ? {
-            id: registrationWithRelations.student.classEntity.id,
-            className: registrationWithRelations.student.classEntity.className,
-            classCode: registrationWithRelations.student.classEntity.classCode
+          id: student.id,
+          studentCode: student.studentCode,
+          fullName: student.user?.fullName || null,
+          email: student.user?.email || null,
+          phone: student.user?.phone || null,
+          class: student.classEntity ? {
+            id: student.classEntity.id,
+            className: student.classEntity.className,
+            classCode: student.classEntity.classCode
           } : null
         },
         thesisRound: registrationWithRelations.thesisRound ? {
@@ -317,7 +388,13 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -339,21 +416,23 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         // Lấy tên đề tài (từ proposedTopic hoặc selfProposedTitle)
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -392,7 +471,20 @@ export class ThesisService {
         id: registrationId,
         instructorId 
       },
-      relations: ['student', 'student.user', 'thesisRound', 'thesisRound.department', 'thesisRound.department.head', 'thesisRound.department.head.user', 'instructor', 'instructor.user', 'proposedTopic']
+      relations: [
+        'thesisGroup',
+        'thesisGroup.members',
+        'thesisGroup.members.student',
+        'thesisGroup.members.student.user',
+        'thesisGroup.members.student.classEntity',
+        'thesisRound',
+        'thesisRound.department',
+        'thesisRound.department.head',
+        'thesisRound.department.head.user',
+        'instructor',
+        'instructor.user',
+        'proposedTopic'
+      ]
     });
 
     if (!registration) {
@@ -416,10 +508,12 @@ export class ThesisService {
     await this.topicRegistrationRepository.update(registrationId, updateData);
 
     // Gửi thông báo real-time cho sinh viên
+    const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
+
     try {
-      if (registration.student?.user?.id) {
+      if (leaderStudent?.user?.id) {
         await this.socketGateway.sendToUser(
-          registration.student.user.id.toString(),
+          leaderStudent.user.id.toString(),
           'topic_registration_updated',
           {
             registrationId: registration.id,
@@ -445,8 +539,8 @@ export class ThesisService {
           'new_registration_for_approval',
           {
             registrationId: registration.id,
-            studentName: registration.student?.user?.fullName || 'N/A',
-            studentCode: registration.student?.studentCode || 'N/A',
+            studentName: leaderStudent?.user?.fullName || 'N/A',
+            studentCode: leaderStudent?.studentCode || 'N/A',
             instructorName: registration.instructor?.user?.fullName || 'N/A',
             topicTitle: topicTitle,
             registrationDate: registration.registrationDate,
@@ -678,11 +772,17 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
+      .innerJoin('registration.thesisGroup', 'thesisGroup')
+      .innerJoin(
+        'thesisGroup.members',
+        'groupMember',
+        'groupMember.studentId = :studentId AND groupMember.isActive = true',
+        { studentId },
+      )
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
       .leftJoinAndSelect('registration.instructor', 'instructor')
       .leftJoinAndSelect('instructor.user', 'user')
       .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
-      .where('registration.studentId = :studentId', { studentId })
       .orderBy('registration.registrationDate', 'DESC');
 
     // Phân trang
@@ -1957,7 +2057,13 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -1992,20 +2098,22 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -2079,7 +2187,13 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -2119,20 +2233,22 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -2204,8 +2320,10 @@ export class ThesisService {
     const registration = await this.topicRegistrationRepository.findOne({
       where: { id: registrationId },
       relations: [
-        'student', 
-        'student.user', 
+        'thesisGroup',
+        'thesisGroup.members',
+        'thesisGroup.members.student',
+        'thesisGroup.members.student.user',
         'thesisRound', 
         'thesisRound.department',
         'instructor',
@@ -2233,6 +2351,8 @@ export class ThesisService {
       throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
     }
 
+    const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
+
     const approvalDate = new Date();
     const updateData: Partial<TopicRegistration> = {
       headStatus: approved ? 'Approved' : 'Rejected',
@@ -2247,9 +2367,9 @@ export class ThesisService {
 
     // Gửi thông báo real-time cho sinh viên
     try {
-      if (registration.student?.user?.id) {
+      if (leaderStudent?.user?.id) {
         await this.socketGateway.sendToUser(
-          registration.student.user.id.toString(),
+          leaderStudent.user.id.toString(),
           'topic_registration_updated',
           {
             registrationId: registration.id,
@@ -2273,11 +2393,11 @@ export class ThesisService {
           'registration_head_approval_updated',
           {
             registrationId: registration.id,
-            studentName: registration.student?.user?.fullName || 'N/A',
+            studentName: leaderStudent?.user?.fullName || 'N/A',
             status: approved ? 'Approved' : 'Rejected',
             message: approved ? 
-              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã được trưởng bộ môn phê duyệt` : 
-              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã bị trưởng bộ môn từ chối`
+              `Đăng ký đề tài của sinh viên ${leaderStudent?.user?.fullName || 'N/A'} đã được trưởng bộ môn phê duyệt` : 
+              `Đăng ký đề tài của sinh viên ${leaderStudent?.user?.fullName || 'N/A'} đã bị trưởng bộ môn từ chối`
           }
         );
       }
@@ -2819,7 +2939,15 @@ export class ThesisService {
     // Lấy thông tin thesis
     const thesis = await this.thesisRepository.findOne({
       where: { id: thesisId },
-      relations: ['thesisRound', 'thesisRound.department', 'student', 'student.classEntity', 'student.classEntity.major', 'student.classEntity.major.department']
+      relations: [
+        'thesisRound',
+        'thesisRound.department',
+        'thesisGroup',
+        'thesisGroup.creator',
+        'thesisGroup.creator.classEntity',
+        'thesisGroup.creator.classEntity.major',
+        'thesisGroup.creator.classEntity.major.department',
+      ]
     });
 
     if (!thesis) {
@@ -2837,7 +2965,9 @@ export class ThesisService {
 
     // Kiểm tra thesis thuộc bộ môn của trưởng bộ môn
     // Có thể kiểm tra qua thesisRound.departmentId hoặc student.classEntity.major.departmentId
-    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+    const thesisDepartmentId =
+      thesis.thesisRound?.departmentId ||
+      thesis.thesisGroup?.creator?.classEntity?.major?.department?.id;
 
     if (!thesisDepartmentId || thesisDepartmentId !== department.id) {
       throw new ForbiddenException('Đề tài này không thuộc bộ môn của bạn');
@@ -2864,7 +2994,9 @@ export class ThesisService {
     }
 
     // Kiểm tra giáo viên phản biện thuộc cùng bộ môn với đề tài
-    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+    const thesisDepartmentId =
+      thesis.thesisRound?.departmentId ||
+      thesis.thesisGroup?.creator?.classEntity?.major?.department?.id;
     if (thesisDepartmentId && reviewer.departmentId !== thesisDepartmentId) {
       throw new BadRequestException('Giáo viên phản biện không thuộc bộ môn của đề tài này');
     }
@@ -2911,7 +3043,14 @@ export class ThesisService {
     // Lấy thông tin đầy đủ để trả về
     const savedAssignment = await this.reviewAssignmentRepository.findOne({
       where: { id: reviewAssignment.id },
-      relations: ['reviewer', 'reviewer.user', 'thesis', 'thesis.student', 'thesis.student.user']
+      relations: [
+        'reviewer',
+        'reviewer.user',
+        'thesis',
+        'thesis.thesisGroup',
+        'thesis.thesisGroup.creator',
+        'thesis.thesisGroup.creator.user',
+      ]
     });
 
     if (!savedAssignment) {
@@ -2928,9 +3067,9 @@ export class ThesisService {
           thesisCode: savedAssignment.thesis.thesisCode,
           topicTitle: savedAssignment.thesis.topicTitle,
           student: {
-            id: savedAssignment.thesis.student.id,
-            studentCode: savedAssignment.thesis.student.studentCode,
-            fullName: savedAssignment.thesis.student.user.fullName
+            id: savedAssignment.thesis.thesisGroup?.creator?.id || null,
+            studentCode: savedAssignment.thesis.thesisGroup?.creator?.studentCode || null,
+            fullName: savedAssignment.thesis.thesisGroup?.creator?.user?.fullName || null
           }
         },
         reviewer: {

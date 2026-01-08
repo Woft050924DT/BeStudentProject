@@ -587,23 +587,17 @@ export class StudentService {
   async deleteStudent(id: number): Promise<void> {
     const student = await this.studentRepository.findOne({
       where: { id },
-      relations: ['topicRegistrations', 'theses']
     });
 
     if (!student) {
       throw new NotFoundException('Không tìm thấy sinh viên');
     }
 
-    // Kiểm tra ràng buộc - không cho xóa nếu có đề tài đăng ký hoặc đang làm
-    if (student.topicRegistrations && student.topicRegistrations.length > 0) {
-      throw new BadRequestException('Không thể xóa sinh viên đang có đề tài đăng ký');
+    try {
+      await this.studentRepository.remove(student);
+    } catch {
+      throw new BadRequestException('Không thể xóa sinh viên do đang được tham chiếu');
     }
-
-    if (student.theses && student.theses.length > 0) {
-      throw new BadRequestException('Không thể xóa sinh viên đang có đề tài');
-    }
-
-    await this.studentRepository.remove(student);
   }
 
   // Lấy sinh viên theo lớp
