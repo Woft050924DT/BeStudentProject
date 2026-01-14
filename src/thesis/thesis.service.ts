@@ -25,6 +25,7 @@ import { ThesisGroupMember } from './entities/thesis-group-member.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Faculty } from '../organization/entities/faculty.entity';
 import { Class } from '../organization/entities/class.entity';
 import { Users } from '../user/user.entity';
 import { SocketGateway } from '../socket/socket.gateway';
@@ -50,6 +51,8 @@ export class ThesisService {
     private instructorRepository: Repository<Instructor>,
     @InjectRepository(Department)
     private departmentRepository: Repository<Department>,
+    @InjectRepository(Faculty)
+    private facultyRepository: Repository<Faculty>,
     @InjectRepository(Class)
     private classRepository: Repository<Class>,
     @InjectRepository(ThesisRoundClass)
@@ -68,6 +71,42 @@ export class ThesisService {
     private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
   ) {}
+
+  private async resolveDepartmentForHeadInstructor(headInstructor: Instructor): Promise<Department | null> {
+    const departmentByInstructorId = await this.departmentRepository.findOne({
+      where: { headId: headInstructor.id },
+      relations: ['head'],
+    });
+    if (departmentByInstructorId) {
+      return departmentByInstructorId;
+    }
+
+    const departmentByUserId = await this.departmentRepository.findOne({
+      where: { headId: headInstructor.userId },
+      relations: ['head'],
+    });
+    if (!departmentByUserId) {
+      if (!headInstructor.departmentId) {
+        return null;
+      }
+      return this.departmentRepository.findOne({
+        where: { id: headInstructor.departmentId },
+        relations: ['head'],
+      });
+    }
+
+    if (departmentByUserId.head && departmentByUserId.head.userId !== headInstructor.userId) {
+      if (!headInstructor.departmentId) {
+        return null;
+      }
+      return this.departmentRepository.findOne({
+        where: { id: headInstructor.departmentId },
+        relations: ['head'],
+      });
+    }
+
+    return departmentByUserId;
+  }
 
   private makeIndividualGroupCode(thesisRoundId: number, studentId: number): string {
     const roundPart = thesisRoundId.toString(36);
@@ -301,6 +340,8 @@ export class ThesisService {
       selfProposedTitle,
       selfProposedDescription,
       selectionReason,
+      instructorStatus: 'PENDING',
+      headStatus: 'PENDING',
       registrationDate: new Date()
     });
 
@@ -406,7 +447,7 @@ export class ThesisService {
     }
 
     if (status) {
-      queryBuilder.andWhere('registration.instructorStatus = :status', { status });
+      queryBuilder.andWhere('UPPER(registration.instructorStatus) = :status', { status: status.toUpperCase() });
     }
 
     queryBuilder.orderBy('registration.registrationDate', 'DESC');
@@ -491,14 +532,15 @@ export class ThesisService {
       throw new NotFoundException('Đăng ký đề tài không tồn tại hoặc không thuộc quyền quản lý của bạn');
     }
 
-    if (registration.instructorStatus !== 'Pending') {
+    if ((registration.instructorStatus || '').toUpperCase() !== 'PENDING') {
       throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
     }
 
     const approvalDate = new Date();
     const updateData: Partial<TopicRegistration> = {
-      instructorStatus: approved ? 'Approved' : 'Rejected',
-      instructorApprovalDate: approvalDate
+      instructorStatus: approved ? 'APPROVED' : 'REJECTED',
+      instructorApprovalDate: approvalDate,
+      headStatus: approved ? 'PENDING' : 'REJECTED',
     };
 
     if (!approved && rejectionReason) {
@@ -558,7 +600,7 @@ export class ThesisService {
       message: approved ? 'Phê duyệt đăng ký thành công. Đăng ký đã được gửi lên trưởng bộ môn để phê duyệt' : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected',
+        status: approved ? 'APPROVED' : 'REJECTED',
         nextStep: approved ? 'Chờ trưởng bộ môn phê duyệt' : null
       }
     };
@@ -1183,6 +1225,28 @@ export class ThesisService {
         finalDepartmentId = instructor.departmentId;
       } else if (!departmentId) {
         throw new BadRequestException('Giáo viên chưa được gán vào bộ môn. Vui lòng liên hệ quản trị viên.');
+      }
+    }
+
+    if (finalDepartmentId) {
+      const department = await this.departmentRepository.findOne({
+        where: { id: finalDepartmentId },
+      });
+
+      if (!department) {
+        throw new BadRequestException(
+          `Bộ môn (departmentId=${finalDepartmentId}) không tồn tại`,
+        );
+      }
+    }
+
+    if (facultyId) {
+      const faculty = await this.facultyRepository.findOne({
+        where: { id: facultyId },
+      });
+
+      if (!faculty) {
+        throw new BadRequestException(`Khoa (facultyId=${facultyId}) không tồn tại`);
       }
     }
 
@@ -2040,9 +2104,7 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(instructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -2053,7 +2115,7 @@ export class ThesisService {
 
   // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
   async getRegistrationsForHeadApproval(departmentId: number, query: GetRegistrationsForHeadApprovalDto) {
-    const { thesisRoundId, status, page = 1, limit = 10 } = query;
+    const { thesisRoundId, page = 1, limit = 10 } = query;
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
@@ -2072,15 +2134,11 @@ export class ThesisService {
       .leftJoinAndSelect('registration.instructor', 'instructor')
       .leftJoinAndSelect('instructor.user', 'instructorUser')
       .where('department.id = :departmentId', { departmentId })
-      .andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus: 'Approved' })
-      .andWhere('registration.headStatus = :headStatus', { headStatus: 'Pending' });
+      .andWhere('UPPER(registration.instructorStatus) = :instructorStatus', { instructorStatus: 'APPROVED' })
+      .andWhere('UPPER(registration.headStatus) = :headStatus', { headStatus: 'PENDING' });
 
     if (thesisRoundId) {
       queryBuilder.andWhere('registration.thesisRoundId = :thesisRoundId', { thesisRoundId });
-    }
-
-    if (status) {
-      queryBuilder.andWhere('registration.headStatus = :status', { status });
     }
 
     queryBuilder.orderBy('registration.instructorApprovalDate', 'DESC');
@@ -2170,9 +2228,7 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(instructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -2210,12 +2266,12 @@ export class ThesisService {
 
     // Filter theo trạng thái giáo viên
     if (instructorStatus) {
-      queryBuilder.andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus });
+      queryBuilder.andWhere('UPPER(registration.instructorStatus) = :instructorStatus', { instructorStatus: instructorStatus.toUpperCase() });
     }
 
     // Filter theo trạng thái trưởng bộ môn
     if (headStatus) {
-      queryBuilder.andWhere('registration.headStatus = :headStatus', { headStatus });
+      queryBuilder.andWhere('UPPER(registration.headStatus) = :headStatus', { headStatus: headStatus.toUpperCase() });
     }
 
     queryBuilder.orderBy('registration.registrationDate', 'DESC');
@@ -2307,10 +2363,7 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId },
-      relations: ['head']
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(headInstructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -2342,12 +2395,12 @@ export class ThesisService {
     }
 
     // Kiểm tra giáo viên hướng dẫn đã phê duyệt chưa
-    if (registration.instructorStatus !== 'Approved') {
+    if ((registration.instructorStatus || '').toUpperCase() !== 'APPROVED') {
       throw new BadRequestException('Giáo viên hướng dẫn chưa phê duyệt đăng ký này');
     }
 
     // Kiểm tra trưởng bộ môn đã xử lý chưa
-    if (registration.headStatus !== 'Pending') {
+    if ((registration.headStatus || '').toUpperCase() !== 'PENDING') {
       throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
     }
 
@@ -2355,7 +2408,7 @@ export class ThesisService {
 
     const approvalDate = new Date();
     const updateData: Partial<TopicRegistration> = {
-      headStatus: approved ? 'Approved' : 'Rejected',
+      headStatus: approved ? 'APPROVED' : 'REJECTED',
       headApprovalDate: approvalDate
     };
 
@@ -2410,9 +2463,9 @@ export class ThesisService {
       message: approved ? 'Phê duyệt đăng ký thành công' : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected',
+        status: approved ? 'APPROVED' : 'REJECTED',
         instructorStatus: registration.instructorStatus,
-        headStatus: approved ? 'Approved' : 'Rejected',
+        headStatus: approved ? 'APPROVED' : 'REJECTED',
         isFullyApproved: approved
       }
     };
@@ -2673,10 +2726,15 @@ export class ThesisService {
       });
 
       // Tìm department mà instructor này là head
-      department = await this.departmentRepository.findOne({
-        where: { headId: instructorId },
-        relations: ['faculty']
-      });
+      if (instructor) {
+        department = await this.resolveDepartmentForHeadInstructor(instructor);
+        if (department) {
+          department = await this.departmentRepository.findOne({
+            where: { id: department.id },
+            relations: ['faculty'],
+          });
+        }
+      }
     }
 
     // Nếu không có instructor hoặc không tìm thấy, thử tìm từ userId
@@ -2688,10 +2746,13 @@ export class ThesisService {
 
       // Nếu có instructor, tìm department mà instructor này là head
       if (instructor) {
-        department = await this.departmentRepository.findOne({
-          where: { headId: instructor.id },
-          relations: ['faculty']
-        });
+        department = await this.resolveDepartmentForHeadInstructor(instructor);
+        if (department) {
+          department = await this.departmentRepository.findOne({
+            where: { id: department.id },
+            relations: ['faculty'],
+          });
+        }
       }
     }
 
@@ -2707,10 +2768,17 @@ export class ThesisService {
     // Nếu không có user, trả về thông tin rỗng
     if (!user) {
       return {
+        userId: userId ?? null,
+        instructorId: instructorId ?? null,
+        username: null,
         instructorCode: null,
         fullName: null,
         email: null,
         phone: null,
+        gender: null,
+        dateOfBirth: null,
+        address: null,
+        avatar: null,
         academicTitle: null,
         degree: null,
         specialization: null,
@@ -2739,10 +2807,17 @@ export class ThesisService {
 
     // Trả về thông tin có gì lấy đấy
     return {
+      userId: user.id,
+      instructorId: instructor?.id || null,
+      username: user.username || null,
       instructorCode: instructor?.instructorCode || null,
       fullName: user.fullName || null,
       email: user.email || null,
       phone: user.phone || null,
+      gender: user.gender || null,
+      dateOfBirth: user.dateOfBirth || null,
+      address: user.address || null,
+      avatar: user.avatar || null,
       academicTitle: instructor?.academicTitle || null,
       degree: instructor?.degree || null,
       specialization: instructor?.specialization || null,
@@ -2792,16 +2867,24 @@ export class ThesisService {
 
     // Lấy thông tin user
     let user: Users | null = null;
-    if (instructor?.user) {
-      user = instructor.user;
-    } else if (userId) {
-      user = await this.userRepository.findOne({
-        where: { id: userId }
-      });
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
     }
+
+    user = instructor?.user ?? await this.userRepository.findOne({ where: { id: userId } });
 
     if (!user) {
       throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    if (updateDto.email && updateDto.email !== user.email) {
+      const existingUser = await this.userRepository.findOne({
+        where: { email: updateDto.email },
+      });
+
+      if (existingUser && existingUser.id !== user.id) {
+        throw new ConflictException('Email đã được sử dụng');
+      }
     }
 
     // Cập nhật thông tin user
@@ -2814,15 +2897,76 @@ export class ThesisService {
     if (updateDto.phone !== undefined) {
       user.phone = updateDto.phone;
     }
+    if (updateDto.gender !== undefined) {
+      user.gender = updateDto.gender;
+    }
+    if (updateDto.dateOfBirth !== undefined) {
+      user.dateOfBirth = new Date(updateDto.dateOfBirth);
+    }
+    if (updateDto.address !== undefined) {
+      user.address = updateDto.address;
+    }
+    if (updateDto.avatar !== undefined) {
+      user.avatar = updateDto.avatar;
+    }
 
     // Lưu thay đổi user
     await this.userRepository.save(user);
 
-    // Cập nhật thông tin instructor nếu có
+    const hasInstructorFields =
+      updateDto.departmentId !== undefined ||
+      updateDto.instructorCode !== undefined ||
+      updateDto.yearsOfExperience !== undefined ||
+      updateDto.academicTitle !== undefined ||
+      updateDto.degree !== undefined ||
+      updateDto.specialization !== undefined;
+
+    if (!instructor && hasInstructorFields) {
+      if (!updateDto.instructorCode) {
+        throw new BadRequestException('Mã giảng viên là bắt buộc khi tạo mới');
+      }
+
+      if (!updateDto.departmentId) {
+        throw new BadRequestException('Bộ môn là bắt buộc khi tạo mới');
+      }
+
+      const departmentExists = await this.departmentRepository.findOne({
+        where: { id: updateDto.departmentId },
+      });
+
+      if (!departmentExists) {
+        throw new NotFoundException('Không tìm thấy bộ môn');
+      }
+
+      const existingInstructor = await this.instructorRepository.findOne({
+        where: { instructorCode: updateDto.instructorCode },
+      });
+
+      if (existingInstructor) {
+        throw new ConflictException('Mã giảng viên đã tồn tại');
+      }
+
+      instructor = await this.instructorRepository.save(
+        this.instructorRepository.create({
+          userId,
+          instructorCode: updateDto.instructorCode,
+          departmentId: updateDto.departmentId,
+          degree: updateDto.degree,
+          academicTitle: updateDto.academicTitle,
+          specialization: updateDto.specialization,
+          yearsOfExperience: updateDto.yearsOfExperience ?? 0,
+          status: true,
+        }),
+      );
+
+      instructor = await this.instructorRepository.findOne({
+        where: { id: instructor.id },
+        relations: ['user', 'department'],
+      });
+    }
+
     if (instructor) {
-      // Kiểm tra và cập nhật mã giảng viên nếu có thay đổi
       if (updateDto.instructorCode !== undefined && updateDto.instructorCode !== instructor.instructorCode) {
-        // Kiểm tra mã giảng viên đã tồn tại chưa (trừ chính bản thân instructor này)
         const existingInstructor = await this.instructorRepository.findOne({
           where: { instructorCode: updateDto.instructorCode }
         });
@@ -2834,7 +2978,18 @@ export class ThesisService {
         instructor.instructorCode = updateDto.instructorCode;
       }
 
-      // Cập nhật số năm kinh nghiệm
+      if (updateDto.departmentId !== undefined && updateDto.departmentId !== instructor.departmentId) {
+        const departmentExists = await this.departmentRepository.findOne({
+          where: { id: updateDto.departmentId },
+        });
+
+        if (!departmentExists) {
+          throw new NotFoundException('Không tìm thấy bộ môn');
+        }
+
+        instructor.departmentId = updateDto.departmentId;
+      }
+
       if (updateDto.yearsOfExperience !== undefined) {
         instructor.yearsOfExperience = updateDto.yearsOfExperience;
       }
@@ -2855,10 +3010,13 @@ export class ThesisService {
     // Tìm department mà instructor này là head (nếu có)
     let department: Department | null = null;
     if (instructor) {
-      department = await this.departmentRepository.findOne({
-        where: { headId: instructor.id },
-        relations: ['faculty']
-      });
+      department = await this.resolveDepartmentForHeadInstructor(instructor);
+      if (department) {
+        department = await this.departmentRepository.findOne({
+          where: { id: department.id },
+          relations: ['faculty'],
+        });
+      }
     }
 
     // Sử dụng department từ instructor nếu không tìm thấy từ headId
@@ -2869,66 +3027,51 @@ export class ThesisService {
       });
     }
 
-    // Lấy lại thông tin đầy đủ
-    if (instructor) {
-      const updatedInstructor = await this.instructorRepository.findOne({
-        where: { id: instructor.id },
-        relations: ['user', 'department', 'department.faculty']
-      });
-
-      if (updatedInstructor) {
-        const updatedUser = updatedInstructor.user || user;
-        const updatedDept = department || updatedInstructor.department;
-
-        return {
-          instructorCode: updatedInstructor.instructorCode || null,
-          fullName: updatedUser.fullName || null,
-          email: updatedUser.email || null,
-          phone: updatedUser.phone || null,
-          academicTitle: updatedInstructor.academicTitle || null,
-          degree: updatedInstructor.degree || null,
-          specialization: updatedInstructor.specialization || null,
-          yearsOfExperience: updatedInstructor.yearsOfExperience || 0,
-          department: updatedDept ? {
-            id: updatedDept.id,
-            departmentCode: updatedDept.departmentCode,
-            departmentName: updatedDept.departmentName,
-            faculty: updatedDept.faculty ? {
-              id: updatedDept.faculty.id,
-              facultyCode: updatedDept.faculty.facultyCode,
-              facultyName: updatedDept.faculty.facultyName
-            } : null
-          } : null,
-          isFirstTime: !(updatedInstructor.instructorCode && updatedInstructor.departmentId && updatedUser.fullName && updatedUser.email)
-        };
-      }
-    }
-
-    // Nếu không có instructor, chỉ trả về thông tin user
-    const updatedUser = await this.userRepository.findOne({
+    const refreshedUser = await this.userRepository.findOne({
       where: { id: user.id }
     });
 
+    const updatedInstructor = instructor
+      ? await this.instructorRepository.findOne({
+        where: { id: instructor.id },
+        relations: ['user', 'department', 'department.faculty']
+      })
+      : null;
+
+    const responseUser = updatedInstructor?.user ?? refreshedUser ?? user;
+    const responseInstructor = updatedInstructor ?? instructor;
+    const responseDept = department ?? updatedInstructor?.department ?? null;
+
+    const hasCompleteInfo = !!(responseInstructor?.instructorCode && responseInstructor?.departmentId && responseUser.fullName && responseUser.email);
+
     return {
-      instructorCode: null,
-      fullName: updatedUser?.fullName || null,
-      email: updatedUser?.email || null,
-      phone: updatedUser?.phone || null,
-      academicTitle: null,
-      degree: null,
-      specialization: null,
-      yearsOfExperience: 0,
-      department: department ? {
-        id: department.id,
-        departmentCode: department.departmentCode,
-        departmentName: department.departmentName,
-        faculty: department.faculty ? {
-          id: department.faculty.id,
-          facultyCode: department.faculty.facultyCode,
-          facultyName: department.faculty.facultyName
+      userId: responseUser.id,
+      instructorId: responseInstructor?.id || null,
+      username: responseUser.username || null,
+      instructorCode: responseInstructor?.instructorCode || null,
+      fullName: responseUser.fullName || null,
+      email: responseUser.email || null,
+      phone: responseUser.phone || null,
+      gender: responseUser.gender || null,
+      dateOfBirth: responseUser.dateOfBirth || null,
+      address: responseUser.address || null,
+      avatar: responseUser.avatar || null,
+      academicTitle: responseInstructor?.academicTitle || null,
+      degree: responseInstructor?.degree || null,
+      specialization: responseInstructor?.specialization || null,
+      yearsOfExperience: responseInstructor?.yearsOfExperience || 0,
+      department: responseDept ? {
+        id: responseDept.id,
+        departmentCode: responseDept.departmentCode,
+        departmentName: responseDept.departmentName,
+        faculty: responseDept.faculty ? {
+          id: responseDept.faculty.id,
+          facultyCode: responseDept.faculty.facultyCode,
+          facultyName: responseDept.faculty.facultyName
         } : null
       } : null,
-      isFirstTime: true
+      isFirstTime: !hasCompleteInfo,
+      ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ trưởng bộ môn.' })
     };
   }
 
@@ -2955,9 +3098,14 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
+    const headInstructor = await this.instructorRepository.findOne({
+      where: { id: headInstructorId },
     });
+    if (!headInstructor) {
+      throw new NotFoundException('Không tìm thấy thông tin trưởng bộ môn');
+    }
+
+    const department = await this.resolveDepartmentForHeadInstructor(headInstructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');

@@ -397,7 +397,7 @@ export class ThesisController {
 
   // Lấy tất cả đăng ký đề tài của sinh viên trong bộ môn
   @Get('head/student-registrations')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getAllStudentRegistrationsForHead(@Request() req: AuthenticatedRequest, @Query() query: GetAllStudentRegistrationsForHeadDto) {
     const instructorId = req.user.instructorId;
@@ -409,7 +409,7 @@ export class ThesisController {
 
   // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
   @Get('head/pending-registrations')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getRegistrationsForHeadApproval(@Request() req: AuthenticatedRequest, @Query() query: GetRegistrationsForHeadApprovalDto) {
     const instructorId = req.user.instructorId;
@@ -419,9 +419,34 @@ export class ThesisController {
     return this.thesisService.getRegistrationsForHeadApprovalByInstructorId(instructorId, query);
   }
 
+  // Lấy danh sách sinh viên đăng ký đề tài đã được GVHD phê duyệt để trưởng bộ môn phê duyệt
+  @Get('head/instructor-approved-registrations')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async getInstructorApprovedRegistrationsForHead(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetRegistrationsForHeadApprovalDto,
+  ) {
+    const userId = req.user.userId;
+    let instructorId: number | null = req.user.instructorId ?? null;
+
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+
+    return this.thesisService.getRegistrationsForHeadApprovalByInstructorId(instructorId, query);
+  }
+
   // Trưởng bộ môn phê duyệt/từ chối đăng ký đề tài
   @Put('head/approve-registration')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async approveTopicRegistrationByHead(@Request() req: AuthenticatedRequest, @Body() approveDto: ApproveTopicRegistrationByHeadDto) {
     const instructorId = req.user.instructorId;
@@ -433,7 +458,7 @@ export class ThesisController {
 
   // Lấy thông tin cá nhân trưởng bộ môn
   @Get('head/profile')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getHeadProfile(@Request() req: AuthenticatedRequest) {
     const userId = req.user.userId;
@@ -452,7 +477,7 @@ export class ThesisController {
 
   // Cập nhật thông tin cá nhân trưởng bộ môn
   @Put('head/profile')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async updateHeadProfile(@Request() req: AuthenticatedRequest, @Body() updateDto: UpdateHeadProfileDto) {
     const userId = req.user.userId;

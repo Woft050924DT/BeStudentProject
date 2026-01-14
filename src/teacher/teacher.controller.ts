@@ -13,7 +13,7 @@ import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { TeacherService } from './teacher.service';
-import { UpdateTeacherInfoDto } from './dto/update-teacher-info.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { GetThesisRoundsDto } from '../thesis/dto/thesis-round.dto';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
@@ -40,7 +40,7 @@ export class TeacherController {
   @UseGuards(RolesGuard)
   async updateMyInfo(
     @Request() req: AuthenticatedRequest,
-    @Body() updateDto: UpdateTeacherInfoDto
+    @Body() updateDto: UpdateProfileDto
   ) {
     const userId = req.user.userId;
     if (!userId) {

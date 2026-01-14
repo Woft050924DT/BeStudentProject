@@ -20,6 +20,65 @@ export class StudentService {
     private readonly classRepository: Repository<Class>,
   ) {}
 
+  private toProfileResponse(student: Student | null, user: Users, classEntity: Class | null) {
+    const hasCompleteInfo = !!(
+      student?.studentCode &&
+      student?.classId &&
+      user.fullName &&
+      user.email
+    );
+
+    return {
+      userId: user.id,
+      studentId: student?.id || null,
+      username: user.username || null,
+      studentCode: student?.studentCode || null,
+      fullName: user.fullName || null,
+      email: user.email || null,
+      phone: user.phone || null,
+      gender: user.gender || null,
+      dateOfBirth: user.dateOfBirth || null,
+      address: user.address || null,
+      avatar: user.avatar || null,
+      academicStatus: student?.academicStatus || null,
+      status: student?.status ?? null,
+      cvFile: student?.cvFile || null,
+      admissionYear: student?.admissionYear ?? null,
+      gpa: student?.gpa ?? null,
+      creditsEarned: student?.creditsEarned ?? 0,
+      class: classEntity
+        ? {
+            id: classEntity.id,
+            classCode: classEntity.classCode,
+            className: classEntity.className,
+            major: (classEntity as any).major
+              ? {
+                  id: (classEntity as any).major.id,
+                  majorCode: (classEntity as any).major.majorCode,
+                  majorName: (classEntity as any).major.majorName,
+                  department: (classEntity as any).major.department
+                    ? {
+                        id: (classEntity as any).major.department.id,
+                        departmentCode: (classEntity as any).major.department.departmentCode,
+                        departmentName: (classEntity as any).major.department.departmentName,
+                        faculty: (classEntity as any).major.department.faculty
+                          ? {
+                              id: (classEntity as any).major.department.faculty.id,
+                              facultyCode: (classEntity as any).major.department.faculty.facultyCode,
+                              facultyName: (classEntity as any).major.department.faculty.facultyName,
+                            }
+                          : null,
+                      }
+                    : null,
+                }
+              : null,
+          }
+        : null,
+      isFirstTime: !hasCompleteInfo,
+      ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ sinh viên.' }),
+    };
+  }
+
   // Helper function để tìm lớp theo ID hoặc mã lớp
   private async findClassByIdOrCode(classId: string | number): Promise<Class | null> {
     // Nếu là số, tìm theo ID
@@ -72,7 +131,7 @@ export class StudentService {
   async getMyInfo(userId: number) {
     const student = await this.studentRepository.findOne({
       where: { userId },
-      relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department']
+      relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department', 'classEntity.major.department.faculty']
     });
 
     // Nếu chưa có student record, trả về thông tin user và thông báo cần tạo student
@@ -85,71 +144,10 @@ export class StudentService {
         throw new NotFoundException('Không tìm thấy thông tin người dùng');
       }
 
-      return {
-        success: true,
-        data: {
-          id: null,
-          studentCode: null,
-          academicStatus: null,
-          status: null,
-          cvFile: null,
-          admissionYear: null,
-          gpa: null,
-          creditsEarned: null,
-          user: {
-            id: user.id,
-            fullName: user.fullName,
-            email: user.email,
-            phone: user.phone,
-            gender: user.gender,
-            dateOfBirth: user.dateOfBirth,
-            avatar: user.avatar,
-            address: user.address
-          },
-          class: null
-        },
-        message: 'Chưa có thông tin sinh viên. Vui lòng điền và lưu thông tin để tạo hồ sơ sinh viên.'
-      };
+      return this.toProfileResponse(null, user, null);
     }
 
-    return {
-      success: true,
-      data: {
-        id: student.id,
-        studentCode: student.studentCode,
-        academicStatus: student.academicStatus,
-        status: student.status,
-        cvFile: student.cvFile,
-        admissionYear: student.admissionYear,
-        gpa: student.gpa,
-        creditsEarned: student.creditsEarned,
-        user: {
-          id: student.user.id,
-          fullName: student.user.fullName,
-          email: student.user.email,
-          phone: student.user.phone,
-          gender: student.user.gender,
-          dateOfBirth: student.user.dateOfBirth,
-          avatar: student.user.avatar,
-          address: student.user.address
-        },
-        class: student.classEntity ? {
-          id: student.classEntity.id,
-          classCode: student.classEntity.classCode,
-          className: student.classEntity.className,
-          major: student.classEntity.major ? {
-            id: student.classEntity.major.id,
-            majorCode: student.classEntity.major.majorCode,
-            majorName: student.classEntity.major.majorName,
-            department: student.classEntity.major.department ? {
-              id: student.classEntity.major.department.id,
-              departmentCode: student.classEntity.major.department.departmentCode,
-              departmentName: student.classEntity.major.department.departmentName
-            } : null
-          } : null
-        } : null
-      }
-    };
+    return this.toProfileResponse(student, student.user, student.classEntity ?? null);
   }
 
   // Cập nhật thông tin sinh viên
@@ -227,6 +225,8 @@ export class StudentService {
       if (updateDto.dateOfBirth !== undefined) {
         userUpdateData.dateOfBirth = new Date(updateDto.dateOfBirth);
       }
+      if (updateDto.address !== undefined) userUpdateData.address = updateDto.address;
+      if (updateDto.avatar !== undefined) userUpdateData.avatar = updateDto.avatar;
 
       if (Object.keys(userUpdateData).length > 0) {
         await this.userRepository.update(userId, userUpdateData);
@@ -235,7 +235,7 @@ export class StudentService {
       // Lấy lại thông tin đã cập nhật
       const updatedStudent = await this.studentRepository.findOne({
         where: { id: student.id },
-        relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department']
+        relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department', 'classEntity.major.department.faculty']
       });
 
       if (!updatedStudent) {
@@ -246,45 +246,7 @@ export class StudentService {
         throw new NotFoundException('Không tìm thấy thông tin người dùng');
       }
 
-      return {
-        success: true,
-        message: 'Tạo và cập nhật thông tin sinh viên thành công',
-        data: {
-          id: updatedStudent.id,
-          studentCode: updatedStudent.studentCode,
-          academicStatus: updatedStudent.academicStatus,
-          status: updatedStudent.status,
-          cvFile: updatedStudent.cvFile,
-          admissionYear: updatedStudent.admissionYear,
-          gpa: updatedStudent.gpa,
-          creditsEarned: updatedStudent.creditsEarned,
-          user: {
-            id: updatedStudent.user.id,
-            fullName: updatedStudent.user.fullName,
-            email: updatedStudent.user.email,
-            phone: updatedStudent.user.phone,
-            gender: updatedStudent.user.gender,
-            dateOfBirth: updatedStudent.user.dateOfBirth,
-            avatar: updatedStudent.user.avatar,
-            address: updatedStudent.user.address
-          },
-          class: updatedStudent.classEntity ? {
-            id: updatedStudent.classEntity.id,
-            classCode: updatedStudent.classEntity.classCode,
-            className: updatedStudent.classEntity.className,
-            major: updatedStudent.classEntity.major ? {
-              id: updatedStudent.classEntity.major.id,
-              majorCode: updatedStudent.classEntity.major.majorCode,
-              majorName: updatedStudent.classEntity.major.majorName,
-              department: updatedStudent.classEntity.major.department ? {
-                id: updatedStudent.classEntity.major.department.id,
-                departmentCode: updatedStudent.classEntity.major.department.departmentCode,
-                departmentName: updatedStudent.classEntity.major.department.departmentName
-              } : null
-            } : null
-          } : null
-        }
-      };
+      return this.toProfileResponse(updatedStudent, updatedStudent.user, updatedStudent.classEntity ?? null);
     }
 
     // Kiểm tra mã sinh viên nếu có thay đổi
@@ -335,6 +297,8 @@ export class StudentService {
     if (updateDto.dateOfBirth !== undefined) {
       userUpdateData.dateOfBirth = new Date(updateDto.dateOfBirth);
     }
+    if (updateDto.address !== undefined) userUpdateData.address = updateDto.address;
+    if (updateDto.avatar !== undefined) userUpdateData.avatar = updateDto.avatar;
 
     if (Object.keys(userUpdateData).length > 0) {
       await this.userRepository.update(student.userId, userUpdateData);
@@ -354,7 +318,7 @@ export class StudentService {
     // Lấy lại thông tin đã cập nhật
     const updatedStudent = await this.studentRepository.findOne({
       where: { id: student.id },
-      relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department']
+      relations: ['user', 'classEntity', 'classEntity.major', 'classEntity.major.department', 'classEntity.major.department.faculty']
     });
 
     if (!updatedStudent) {
@@ -365,45 +329,7 @@ export class StudentService {
       throw new NotFoundException('Không tìm thấy thông tin người dùng');
     }
 
-    return {
-      success: true,
-      message: 'Cập nhật thông tin sinh viên thành công',
-      data: {
-        id: updatedStudent.id,
-        studentCode: updatedStudent.studentCode,
-        academicStatus: updatedStudent.academicStatus,
-        status: updatedStudent.status,
-        cvFile: updatedStudent.cvFile,
-        admissionYear: updatedStudent.admissionYear,
-        gpa: updatedStudent.gpa,
-        creditsEarned: updatedStudent.creditsEarned,
-        user: {
-          id: updatedStudent.user.id,
-          fullName: updatedStudent.user.fullName,
-          email: updatedStudent.user.email,
-          phone: updatedStudent.user.phone,
-          gender: updatedStudent.user.gender,
-          dateOfBirth: updatedStudent.user.dateOfBirth,
-          avatar: updatedStudent.user.avatar,
-          address: updatedStudent.user.address
-        },
-        class: updatedStudent.classEntity ? {
-          id: updatedStudent.classEntity.id,
-          classCode: updatedStudent.classEntity.classCode,
-          className: updatedStudent.classEntity.className,
-          major: updatedStudent.classEntity.major ? {
-            id: updatedStudent.classEntity.major.id,
-            majorCode: updatedStudent.classEntity.major.majorCode,
-            majorName: updatedStudent.classEntity.major.majorName,
-            department: updatedStudent.classEntity.major.department ? {
-              id: updatedStudent.classEntity.major.department.id,
-              departmentCode: updatedStudent.classEntity.major.department.departmentCode,
-              departmentName: updatedStudent.classEntity.major.department.departmentName
-            } : null
-          } : null
-        } : null
-      }
-    };
+    return this.toProfileResponse(updatedStudent, updatedStudent.user, updatedStudent.classEntity ?? null);
   }
 
   // ================================

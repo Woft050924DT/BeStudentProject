@@ -29,7 +29,6 @@ export class UserRoleAssignment {
 
 
 
-  // THIẾU RELATIONS
   @ManyToOne(() => Users, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: Users;

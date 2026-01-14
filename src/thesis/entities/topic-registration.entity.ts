@@ -5,6 +5,7 @@ import {
   ManyToOne,
   OneToOne,
   JoinColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Instructor } from '../../instructor/entities/instructor.entity';
 import { ThesisRound } from './thesis-round.entity';
@@ -93,6 +94,9 @@ export class TopicRegistration {
 
   @Column({ name: 'head_approval_date', nullable: true })
   headApprovalDate?: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 
   // Relations
   @ManyToOne(() => ThesisGroup, (group) => group.topicRegistrations)
