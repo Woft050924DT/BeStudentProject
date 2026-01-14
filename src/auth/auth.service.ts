@@ -6,36 +6,42 @@ import {
   NotImplementedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UserService } from '../user/user.service';
-// Local payload type
-interface JwtPayload {
-  sub: string;
-  email?: string;
-  fullName?: string;
-}
+import { StudentService } from '../student/student.service';
+import { InstructorService } from '../instructor/instructor.service';
+import { AuthResponse, TokenPayload } from './interface/auth-response.interface';
 import { Users } from '../user/user.entity';
+import { Department } from '../organization/entities/department.entity';
 import { RegisterDto } from './interface/register.dto';
 import { LoginDto } from './interface/login.dto';
 import { ChangePasswordDto } from './interface/changePassword.dto';
 import { ResetPasswordDto } from './interface/resetPassword.dto';
 import { ForgotPasswordDto } from './interface/forgotPassword.dto';
+import { UserRole } from '../models/enum/userRole.enum';
 import * as bcrypt from 'bcrypt';
-// import { randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     private readonly userService: UserService,
+    private readonly studentService: StudentService,
+    private readonly instructorService: InstructorService,
     private readonly mailService: MailService,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
   ) {}
 
   // Đăng ký tài khoản mới
   async register(
     registerDto: RegisterDto,
   ): Promise<{ message: string; user: Partial<Users> }> {
-    const { email, password, username, fullName } = registerDto;
+    const { email, password, username, fullName, role } = registerDto;
 
     // Kiểm tra email đã tồn tại (nếu cung cấp)
     if (email) {
@@ -51,7 +57,8 @@ export class AuthService {
       throw new ConflictException('Username đã được sử dụng');
     }
 
-    // Tạo user mới
+    // Tạo user mới với role mặc định hoặc role được chỉ định
+    const userRole = role || UserRole.STUDENT;
     const user = await this.userService.create({
       email,
       username,
@@ -59,6 +66,8 @@ export class AuthService {
       fullName,
       status: true,
     });
+
+    await this.userService.setPrimaryRole(user.id, userRole);
 
     return {
       message:
@@ -74,7 +83,7 @@ export class AuthService {
   // Đăng nhập bằng username/mật khẩu
   async login(
     loginDto: LoginDto,
-  ): Promise<{ access_token: string; user: Partial<Users> }> {
+  ): Promise<AuthResponse> {
     const { username, password } = loginDto;
 
     // Xác thực username và mật khẩu
@@ -88,7 +97,7 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa');
     }
 
-    return this.generateTokenResponse(user);
+    return await this.generateTokenResponse(user);
   }
 
   // Xác thực user bằng username và mật khẩu
@@ -110,7 +119,6 @@ export class AuthService {
     );
   }
 
-  // Gửi lại email xác thực
   resendVerificationEmail(_email: string): Promise<{ message: string }> {
     void _email;
     return Promise.reject(
@@ -161,31 +169,157 @@ export class AuthService {
     return { message: 'Mật khẩu đã được thay đổi thành công' };
   }
 
+  // Helper method: Kiểm tra role có phải là instructor không
+  private isInstructorRole(role: string): boolean {
+    const roleUpper = role.toUpperCase();
+    return roleUpper === 'TEACHER' || roleUpper === 'HEAD_OF_DEPARTMENT';
+  }
 
-  // Tạo JWT token và trả về thông tin user
-  private generateTokenResponse(
-    user: Users,
-  ): { access_token: string; user: Partial<Users> } {
+  // Helper method: Kiểm tra role có phải là student không
+  private isStudentRole(role: string): boolean {
+    return role.toUpperCase() === 'STUDENT';
+  }
+
+  // Tạo payload cho JWT token
+  private async createTokenPayload(user: Users): Promise<TokenPayload> {
+    const rawRoles = (await this.userService.getUserRoles(user.id)) || ['student'];
+    const roles = Array.from(new Set(rawRoles.map((r) => r.toLowerCase())));
+
+    const payload: TokenPayload = {
+      sub: user.id.toString(),
+      email: user.email || undefined,
+      fullName: user.fullName || undefined,
+      roles,
+    };
+
+    // Kiểm tra và thêm studentId hoặc instructorId dựa vào role
+    if (roles.some((r) => this.isStudentRole(r))) {
+      try {
+        const student = await this.studentService.getStudentByUserId(user.id);
+        if (student && student.id) {
+          payload.studentId = student.id;
+        }
+      } catch {
+        // Student chưa được tạo, bỏ qua
+      }
+    }
+
+    if (roles.some((r) => this.isInstructorRole(r))) {
+      try {
+        const instructor = await this.instructorService.getInstructorByUserId(user.id);
+        if (instructor && instructor.id) {
+          payload.instructorId = instructor.id;
+        }
+      } catch {
+        // Instructor chưa được tạo, bỏ qua
+      }
+    }
+
+    if (payload.instructorId) {
+      let department = await this.departmentRepository.findOne({
+        where: { headId: payload.instructorId },
+      });
+      if (!department) {
+        const departmentByUserId = await this.departmentRepository.findOne({
+          where: { headId: user.id },
+          relations: ['head'],
+        });
+        if (departmentByUserId && (!departmentByUserId.head || departmentByUserId.head.userId === user.id)) {
+          department = departmentByUserId;
+        }
+      }
+
+      if (department) {
+        payload.roles = ['head_of_department', ...roles.filter((r) => r !== 'head_of_department')];
+      }
+    }
+
+    return payload;
+  }
+
+  // Tạo access token (thời gian ngắn - 15 phút đến 1 giờ)
+  private generateAccessToken(payload: TokenPayload): string {
+    const secret = this.configService.get<string>('JWT_SECRET') || 'default-secret';
+    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN') || '1h';
+    
+     
+    return this.jwtService.sign(payload as any, {
+      secret,
+      expiresIn,
+    });
+  }
+
+  // Tạo refresh token (thời gian dài - 7 ngày)
+  private generateRefreshToken(payload: TokenPayload): string {
+    const secret = this.configService.get<string>('JWT_REFRESH_SECRET') 
+      || this.configService.get<string>('JWT_SECRET') 
+      || 'default-refresh-secret';
+    const expiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
+    
+     
+    return this.jwtService.sign({ sub: payload.sub } as any, {
+      secret,
+      expiresIn,
+    });
+  }
+
+  // Generate token response với access token và refresh token
+  private async generateTokenResponse(user: Users): Promise<AuthResponse> {
     if (!user.id) {
       throw new BadRequestException('Thông tin user không hợp lệ');
     }
 
-    const payload: JwtPayload = {
-      sub: user.id.toString(),
-      email: user.email || undefined,
-      fullName: user.fullName || undefined,
-    };
+    const payload = await this.createTokenPayload(user);
 
     return {
-      access_token: this.jwtService.sign(payload),
+      access_token: this.generateAccessToken(payload),
+      refresh_token: this.generateRefreshToken(payload),
       user: {
         id: user.id,
         email: user.email,
         username: user.username,
         fullName: user.fullName,
-
+        roles: payload.roles || [],
       },
     };
+  }
+
+  // Refresh access token từ refresh token
+  async refreshAccessToken(refreshToken: string): Promise<{ access_token: string }> {
+    try {
+      const secret = this.configService.get<string>('JWT_REFRESH_SECRET') 
+        || this.configService.get<string>('JWT_SECRET') 
+        || 'default-refresh-secret';
+        
+      const payload = this.jwtService.verify<{ sub: string }>(refreshToken, {
+        secret,
+      });
+
+      if (!payload || !payload.sub) {
+        throw new UnauthorizedException('Token payload không hợp lệ');
+      }
+
+      // Lấy thông tin user từ database
+      const userId = parseInt(payload.sub, 10);
+      const user = await this.userService.findById(userId);
+      
+      if (!user) {
+        throw new UnauthorizedException('User không tồn tại');
+      }
+
+      if (user.status === false) {
+        throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa');
+      }
+
+      // Tạo payload mới và generate access token mới
+      const tokenPayload = await this.createTokenPayload(user);
+      
+      return {
+        access_token: this.generateAccessToken(tokenPayload),
+      };
+    } catch {
+      throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
+    }
   }
 
 

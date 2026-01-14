@@ -11,5 +11,24 @@ services:
       POSTGRES_PASSWORD: dt2711
     volumes:
       - pg_data:/var/lib/postgresql/pg_data
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
 volumes:
-pg_data:
+  pg_data:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge
