@@ -153,3 +153,25 @@ export class GetAllStudentRegistrationsForHeadDto {
   @IsNumber()
   limit?: number;
 }
+
+export class SubmitWeeklyReportDto {
+  @IsOptional()
+  @IsString()
+  workCompleted?: string;
+
+  @IsOptional()
+  @IsString()
+  resultsAchieved?: string;
+
+  @IsOptional()
+  @IsString()
+  difficultiesEncountered?: string;
+
+  @IsOptional()
+  @IsString()
+  nextWeekPlan?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentFile?: string;
+}
