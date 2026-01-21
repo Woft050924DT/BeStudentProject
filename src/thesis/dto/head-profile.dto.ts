@@ -1,6 +1,13 @@
-import { IsOptional, IsString, IsEmail, MaxLength, IsNumber, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsEmail, MaxLength, IsNumber, Min, IsDateString } from 'class-validator';
 
 export class UpdateHeadProfileDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  departmentId?: number;
+
   // Mã giảng viên
   @IsOptional()
   @IsString()
@@ -24,6 +31,25 @@ export class UpdateHeadProfileDto {
   @IsString()
   @MaxLength(15)
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  gender?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  avatar?: string;
 
   // Chức danh (academic title)
   @IsOptional()

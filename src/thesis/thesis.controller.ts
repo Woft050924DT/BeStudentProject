@@ -17,7 +17,7 @@ import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { UserRole } from '../models/enum/userRole.enum';
 import { ThesisService } from './thesis.service';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto } from './dto/register-topic.dto';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto, SubmitWeeklyReportDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, UpdateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -86,6 +86,73 @@ export class ThesisController {
       throw new Error('Student ID not found');
     }
     return this.thesisService.getStudentTopicRegistrations(studentId, query);
+  }
+
+  @Get('my-thesis')
+  @Roles(UserRole.STUDENT)
+  @UseGuards(RolesGuard)
+  async getMyApprovedThesis(@Request() req: AuthenticatedRequest) {
+    let studentId: number | undefined = req.user.studentId;
+
+    if (!studentId) {
+      const userId = req.user.userId;
+      const foundStudentId = await this.thesisService.getStudentIdByUserId(userId);
+      if (foundStudentId) {
+        studentId = foundStudentId;
+      }
+    }
+
+    if (!studentId) {
+      throw new BadRequestException('Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.');
+    }
+
+    return this.thesisService.getMyApprovedThesis(studentId);
+  }
+
+  @Get('my-thesis/weekly-reports')
+  @Roles(UserRole.STUDENT)
+  @UseGuards(RolesGuard)
+  async getMyWeeklyReports(@Request() req: AuthenticatedRequest) {
+    let studentId: number | undefined = req.user.studentId;
+
+    if (!studentId) {
+      const userId = req.user.userId;
+      const foundStudentId = await this.thesisService.getStudentIdByUserId(userId);
+      if (foundStudentId) {
+        studentId = foundStudentId;
+      }
+    }
+
+    if (!studentId) {
+      throw new BadRequestException('Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.');
+    }
+
+    return this.thesisService.getMyWeeklyReports(studentId);
+  }
+
+  @Put('weekly-reports/:id/submit')
+  @Roles(UserRole.STUDENT)
+  @UseGuards(RolesGuard)
+  async submitWeeklyReport(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) reportId: number,
+    @Body() submitDto: SubmitWeeklyReportDto,
+  ) {
+    let studentId: number | undefined = req.user.studentId;
+
+    if (!studentId) {
+      const userId = req.user.userId;
+      const foundStudentId = await this.thesisService.getStudentIdByUserId(userId);
+      if (foundStudentId) {
+        studentId = foundStudentId;
+      }
+    }
+
+    if (!studentId) {
+      throw new BadRequestException('Không tìm thấy thông tin sinh viên. Vui lòng đăng nhập lại.');
+    }
+
+    return this.thesisService.submitWeeklyReport(studentId, reportId, submitDto);
   }
 
   // Alias cho my-registrations (để tương thích với frontend)
@@ -397,10 +464,19 @@ export class ThesisController {
 
   // Lấy tất cả đăng ký đề tài của sinh viên trong bộ môn
   @Get('head/student-registrations')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getAllStudentRegistrationsForHead(@Request() req: AuthenticatedRequest, @Query() query: GetAllStudentRegistrationsForHeadDto) {
-    const instructorId = req.user.instructorId;
+    const userId = req.user.userId;
+    let instructorId: number | null = req.user.instructorId ?? null;
+
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+
     if (!instructorId) {
       throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
     }
@@ -409,22 +485,65 @@ export class ThesisController {
 
   // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
   @Get('head/pending-registrations')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getRegistrationsForHeadApproval(@Request() req: AuthenticatedRequest, @Query() query: GetRegistrationsForHeadApprovalDto) {
-    const instructorId = req.user.instructorId;
+    const userId = req.user.userId;
+    let instructorId: number | null = req.user.instructorId ?? null;
+
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+
     if (!instructorId) {
       throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
     }
     return this.thesisService.getRegistrationsForHeadApprovalByInstructorId(instructorId, query);
   }
 
+  // Lấy danh sách sinh viên đăng ký đề tài đã được GVHD phê duyệt để trưởng bộ môn phê duyệt
+  @Get('head/instructor-approved-registrations')
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
+  @UseGuards(RolesGuard)
+  async getInstructorApprovedRegistrationsForHead(
+    @Request() req: AuthenticatedRequest,
+    @Query() query: GetRegistrationsForHeadApprovalDto,
+  ) {
+    const userId = req.user.userId;
+    let instructorId: number | null = req.user.instructorId ?? null;
+
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+
+    if (!instructorId) {
+      throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
+    }
+
+    return this.thesisService.getRegistrationsForHeadApprovalByInstructorId(instructorId, query);
+  }
+
   // Trưởng bộ môn phê duyệt/từ chối đăng ký đề tài
   @Put('head/approve-registration')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async approveTopicRegistrationByHead(@Request() req: AuthenticatedRequest, @Body() approveDto: ApproveTopicRegistrationByHeadDto) {
-    const instructorId = req.user.instructorId;
+    const userId = req.user.userId;
+    let instructorId: number | null = req.user.instructorId ?? null;
+
+    if (!instructorId && userId) {
+      const foundInstructorId = await this.thesisService.getInstructorIdByUserId(userId);
+      if (foundInstructorId) {
+        instructorId = foundInstructorId;
+      }
+    }
+
     if (!instructorId) {
       throw new BadRequestException('Không tìm thấy thông tin trưởng bộ môn. Vui lòng đăng nhập lại.');
     }
@@ -433,7 +552,7 @@ export class ThesisController {
 
   // Lấy thông tin cá nhân trưởng bộ môn
   @Get('head/profile')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async getHeadProfile(@Request() req: AuthenticatedRequest) {
     const userId = req.user.userId;
@@ -452,7 +571,7 @@ export class ThesisController {
 
   // Cập nhật thông tin cá nhân trưởng bộ môn
   @Put('head/profile')
-  @Roles(UserRole.HEAD_OF_DEPARTMENT)
+  @Roles(UserRole.HEAD_OF_DEPARTMENT, UserRole.TEACHER)
   @UseGuards(RolesGuard)
   async updateHeadProfile(@Request() req: AuthenticatedRequest, @Body() updateDto: UpdateHeadProfileDto) {
     const userId = req.user.userId;

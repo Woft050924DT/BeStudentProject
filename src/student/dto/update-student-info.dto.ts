@@ -40,5 +40,15 @@ export class UpdateStudentInfoDto {
   @IsOptional()
   @IsString()
   cvFile?: string; // CV giới thiệu (file path)
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  avatar?: string;
 }
 

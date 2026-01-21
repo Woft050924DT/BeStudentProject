@@ -6,9 +6,9 @@ import {
   UpdateDateColumn,
   ManyToOne,
   OneToMany,
+  OneToOne,
   JoinColumn,
 } from 'typeorm';
-import { Student } from '../../student/entities/student.entity';
 import { Instructor } from '../../instructor/entities/instructor.entity';
 import { ThesisRound } from './thesis-round.entity';
 import { TopicRegistration } from './topic-registration.entity';
@@ -16,6 +16,8 @@ import { WeeklyReport } from './weekly-report.entity';
 import { SupervisionComment } from './supervision-comment.entity';
 import { ReviewAssignment } from './review-assignment.entity';
 import { DefenseAssignment } from './defense-assignment.entity';
+import { ThesisGroup } from './thesis-group.entity';
+import { ThesisMember } from './thesis-member.entity';
 
 @Entity('theses')
 export class Thesis {
@@ -28,8 +30,8 @@ export class Thesis {
   @Column({ name: 'topic_title', length: 500 })
   topicTitle: string;
 
-  @Column({ name: 'student_id' })
-  studentId: number;
+  @Column({ name: 'thesis_group_id' })
+  thesisGroupId: number;
 
   @Column({ name: 'supervisor_id' })
   supervisorId: number;
@@ -64,20 +66,14 @@ export class Thesis {
   @Column({ name: 'final_report_file', nullable: true })
   finalReportFile?: string;
 
-  @Column({ name: 'supervision_score', type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ name: 'supervision_score', type: 'decimal', precision: 4, scale: 2, nullable: true })
   supervisionScore?: number;
 
-  @Column({ name: 'review_score', type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ name: 'review_score', type: 'decimal', precision: 4, scale: 2, nullable: true })
   reviewScore?: number;
 
-  @Column({ name: 'defense_score', type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ name: 'defense_score', type: 'decimal', precision: 4, scale: 2, nullable: true })
   defenseScore?: number;
-
-  @Column({ name: 'final_score', type: 'decimal', precision: 3, scale: 2, nullable: true })
-  finalScore?: number;
-
-  @Column({ length: 20, nullable: true })
-  grade?: string; // Excellent, Good, Fair, Average, Poor
 
   @Column({ name: 'defense_eligible', default: false })
   defenseEligible: boolean;
@@ -102,9 +98,9 @@ export class Thesis {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => Student, (student) => student.theses)
-  @JoinColumn({ name: 'student_id' })
-  student: Student;
+  @ManyToOne(() => ThesisGroup, (group) => group.theses)
+  @JoinColumn({ name: 'thesis_group_id' })
+  thesisGroup: ThesisGroup;
 
   @ManyToOne(() => Instructor, (instructor) => instructor.supervisedTheses)
   @JoinColumn({ name: 'supervisor_id' })
@@ -114,9 +110,12 @@ export class Thesis {
   @JoinColumn({ name: 'thesis_round_id' })
   thesisRound: ThesisRound;
 
-  @ManyToOne(() => TopicRegistration, (topicRegistration) => topicRegistration.theses)
+  @OneToOne(() => TopicRegistration, (topicRegistration) => topicRegistration.thesis)
   @JoinColumn({ name: 'topic_registration_id' })
   topicRegistration: TopicRegistration;
+
+  @OneToMany(() => ThesisMember, (member) => member.thesis)
+  members: ThesisMember[];
 
   @OneToMany(() => WeeklyReport, (weeklyReport) => weeklyReport.thesis)
   weeklyReports: WeeklyReport[];

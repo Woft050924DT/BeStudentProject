@@ -9,6 +9,9 @@ import {
   Query,
   UseGuards,
   ParseIntPipe,
+  Request,
+  BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { UserRole } from '../models/enum/userRole.enum';
 import { JwtAuthGuard } from '../jwt/jwt-auth.guard';
@@ -16,6 +19,7 @@ import { RolesGuard } from '../guards/role.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { InstructorService } from '../instructor/instructor.service';
 import { OrganizationService } from '../organization/organization.service';
+import { UserService } from '../user/user.service';
 import { CreateInstructorDto } from '../admin/dto/create-instructor.dto';
 import { UpdateInstructorDto } from '../admin/dto/update-instructor.dto';
 import { GetInstructorsDto } from '../admin/dto/get-instructors.dto';
@@ -26,6 +30,8 @@ import { StudentService } from '../student/student.service';
 import { CreateStudentDto } from '../admin/dto/create-student.dto';
 import { UpdateStudentDto } from '../admin/dto/update-student.dto';
 import { GetStudentsDto } from '../admin/dto/get-students.dto';
+import { UpdateUserProfileDto } from '../common/dto/update-user-profile.dto';
+import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('academic-staff')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -35,7 +41,90 @@ export class AcademicStaffController {
     private readonly instructorService: InstructorService,
     private readonly organizationService: OrganizationService,
     private readonly studentService: StudentService,
+    private readonly userService: UserService,
   ) {}
+
+  @Get('profile')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  getMyProfile(@Request() req: AuthenticatedRequest) {
+    const userId = req.user.userId;
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+    return this.userService.findById(userId).then((user) => {
+      if (!user) {
+        throw new BadRequestException('Không tìm thấy thông tin người dùng');
+      }
+      const hasCompleteInfo = !!(user.fullName && user.email);
+      return {
+        userId: user.id,
+        username: user.username || null,
+        fullName: user.fullName || null,
+        email: user.email || null,
+        phone: user.phone || null,
+        gender: user.gender || null,
+        dateOfBirth: user.dateOfBirth || null,
+        address: user.address || null,
+        avatar: user.avatar || null,
+        isFirstTime: !hasCompleteInfo,
+        ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ giáo vụ.' }),
+      };
+    });
+  }
+
+  @Put('profile')
+  @Roles(UserRole.ACADEMIC_STAFF)
+  async updateMyProfile(
+    @Request() req: AuthenticatedRequest,
+    @Body() updateDto: UpdateUserProfileDto,
+  ) {
+    const userId = req.user.userId;
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+
+    const user = await this.userService.findById(userId);
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+
+    if (updateDto.email && updateDto.email !== user.email) {
+      const existing = await this.userService.findByEmail(updateDto.email);
+      if (existing && existing.id !== userId) {
+        throw new ConflictException('Email đã được sử dụng');
+      }
+    }
+
+    const updateData: Record<string, any> = {};
+    if (updateDto.fullName !== undefined) updateData.fullName = updateDto.fullName;
+    if (updateDto.email !== undefined) updateData.email = updateDto.email;
+    if (updateDto.phone !== undefined) updateData.phone = updateDto.phone;
+    if (updateDto.gender !== undefined) updateData.gender = updateDto.gender;
+    if (updateDto.dateOfBirth !== undefined) updateData.dateOfBirth = new Date(updateDto.dateOfBirth);
+    if (updateDto.address !== undefined) updateData.address = updateDto.address;
+    if (updateDto.avatar !== undefined) updateData.avatar = updateDto.avatar;
+
+    await this.userService.update(userId, updateData);
+
+    const updated = await this.userService.findById(userId);
+    if (!updated) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
+    }
+    const hasCompleteInfo = !!(updated.fullName && updated.email);
+    return {
+      userId: updated.id,
+      username: updated.username || null,
+      fullName: updated.fullName || null,
+      email: updated.email || null,
+      phone: updated.phone || null,
+      gender: updated.gender || null,
+      dateOfBirth: updated.dateOfBirth || null,
+      address: updated.address || null,
+      avatar: updated.avatar || null,
+      isFirstTime: !hasCompleteInfo,
+      ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ giáo vụ.' }),
+    };
+  }
 
   // ================================
   // QUẢN LÝ GIẢNG VIÊN

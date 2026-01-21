@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UserService } from '../user/user.service';
 import { StudentService } from '../student/student.service';
 import { InstructorService } from '../instructor/instructor.service';
 import { AuthResponse, TokenPayload } from './interface/auth-response.interface';
 import { Users } from '../user/user.entity';
+import { Department } from '../organization/entities/department.entity';
 import { RegisterDto } from './interface/register.dto';
 import { LoginDto } from './interface/login.dto';
 import { ChangePasswordDto } from './interface/changePassword.dto';
@@ -30,6 +33,8 @@ export class AuthService {
     private readonly studentService: StudentService,
     private readonly instructorService: InstructorService,
     private readonly mailService: MailService,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
   ) {}
 
   // Đăng ký tài khoản mới
@@ -59,9 +64,10 @@ export class AuthService {
       username,
       password,
       fullName,
-      role: userRole.toUpperCase(),
       status: true,
     });
+
+    await this.userService.setPrimaryRole(user.id, userRole);
 
     return {
       message:
@@ -176,39 +182,55 @@ export class AuthService {
 
   // Tạo payload cho JWT token
   private async createTokenPayload(user: Users): Promise<TokenPayload> {
-    const userRole = user.role ? [user.role.toLowerCase()] : ['student'];
+    const rawRoles = (await this.userService.getUserRoles(user.id)) || ['student'];
+    const roles = Array.from(new Set(rawRoles.map((r) => r.toLowerCase())));
 
     const payload: TokenPayload = {
       sub: user.id.toString(),
       email: user.email || undefined,
       fullName: user.fullName || undefined,
-      roles: userRole,
+      roles,
     };
 
     // Kiểm tra và thêm studentId hoặc instructorId dựa vào role
-    if (user.role) {
-      // Nhóm STUDENT - cần studentId
-      if (this.isStudentRole(user.role)) {
-        try {
-          const student = await this.studentService.getStudentByUserId(user.id);
-          if (student && student.id) {
-            payload.studentId = student.id;
-          }
-        } catch {
-          // Student chưa được tạo, bỏ qua
+    if (roles.some((r) => this.isStudentRole(r))) {
+      try {
+        const student = await this.studentService.getStudentByUserId(user.id);
+        if (student && student.id) {
+          payload.studentId = student.id;
+        }
+      } catch {
+        // Student chưa được tạo, bỏ qua
+      }
+    }
+
+    if (roles.some((r) => this.isInstructorRole(r))) {
+      try {
+        const instructor = await this.instructorService.getInstructorByUserId(user.id);
+        if (instructor && instructor.id) {
+          payload.instructorId = instructor.id;
+        }
+      } catch {
+        // Instructor chưa được tạo, bỏ qua
+      }
+    }
+
+    if (payload.instructorId) {
+      let department = await this.departmentRepository.findOne({
+        where: { headId: payload.instructorId },
+      });
+      if (!department) {
+        const departmentByUserId = await this.departmentRepository.findOne({
+          where: { headId: user.id },
+          relations: ['head'],
+        });
+        if (departmentByUserId && (!departmentByUserId.head || departmentByUserId.head.userId === user.id)) {
+          department = departmentByUserId;
         }
       }
 
-      // Nhóm INSTRUCTOR - cần instructorId (TEACHER và HEAD_OF_DEPARTMENT)
-      if (this.isInstructorRole(user.role)) {
-        try {
-          const instructor = await this.instructorService.getInstructorByUserId(user.id);
-          if (instructor && instructor.id) {
-            payload.instructorId = instructor.id;
-          }
-        } catch {
-          // Instructor chưa được tạo, bỏ qua
-        }
+      if (department) {
+        payload.roles = ['head_of_department', ...roles.filter((r) => r !== 'head_of_department')];
       }
     }
 
@@ -220,7 +242,7 @@ export class AuthService {
     const secret = this.configService.get<string>('JWT_SECRET') || 'default-secret';
     const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN') || '1h';
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return this.jwtService.sign(payload as any, {
       secret,
       expiresIn,
@@ -234,7 +256,7 @@ export class AuthService {
       || 'default-refresh-secret';
     const expiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return this.jwtService.sign({ sub: payload.sub } as any, {
       secret,
       expiresIn,
@@ -248,7 +270,6 @@ export class AuthService {
     }
 
     const payload = await this.createTokenPayload(user);
-    const userRole = user.role ? [user.role.toLowerCase()] : ['student'];
 
     return {
       access_token: this.generateAccessToken(payload),
@@ -258,7 +279,7 @@ export class AuthService {
         email: user.email,
         username: user.username,
         fullName: user.fullName,
-        roles: userRole,
+        roles: payload.roles || [],
       },
     };
   }

@@ -1,9 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from'./app.module';
+import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
-import { DocumentBuilder, SwaggerModule} from '@nestjs/swagger';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { RedisIoAdapter } from './socket/redis-io.adapter';
 
 async function bootstrap() {
@@ -18,7 +18,7 @@ async function bootstrap() {
     .setTitle('API Documentation')
     .setDescription('NestJS API Swagger')
     .setVersion('1.0')
-    .addBearerAuth() 
+    .addBearerAuth()
     .build();
 
   // Cấu hình cookie parser
@@ -26,33 +26,33 @@ async function bootstrap() {
 
   // Cấu hình CORS
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'], 
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
   });
 
   // Cấu hình validation pipe
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-    transformOptions: {
-      enableImplicitConversion: true,
-    },
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-
+  logger.log('Database running on:', process.env.DATABASE_URL);
   logger.log(`🚀 Application is running on: http://localhost:${port}`);
   logger.log(`📡 Socket.IO server is running on: http://localhost:${port}`);
   logger.log(`📚 Swagger UI available at: http://localhost:${port}/api/docs`);
   logger.log(`🔴 Redis connection configured`);
   logger.log(`🍪 Cookie parser enabled`);
-
-  
 }
 void bootstrap();

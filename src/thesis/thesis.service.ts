@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto } from './dto/register-topic.dto';
+import { DataSource, Repository } from 'typeorm';
+import { RegisterTopicDto, ApproveTopicRegistrationDto, GetStudentRegistrationsDto, GetMyRegistrationsDto, ApproveTopicRegistrationByHeadDto, GetRegistrationsForHeadApprovalDto, GetAllStudentRegistrationsForHeadDto, SubmitWeeklyReportDto } from './dto/register-topic.dto';
 import { CreateProposedTopicDto, GetProposedTopicsDto, GetMyProposedTopicsDto, UpdateProposedTopicDto } from './dto/proposed-topic.dto';
 import { CreateThesisRoundDto, UpdateThesisRoundDto, GetThesisRoundsDto } from './dto/thesis-round.dto';
 import { AddInstructorToRoundDto, AddMultipleInstructorsDto, UpdateInstructorInRoundDto, GetInstructorsInRoundDto } from './dto/thesis-round-instructor.dto';
@@ -19,10 +19,17 @@ import { ThesisRoundRequest } from './entities/thesis-round-request.entity';
 import { ThesisRoundClass } from './entities/thesis-round-class.entity';
 import { StudentThesisRound } from './entities/student-thesis-round.entity';
 import { Thesis } from './entities/thesis.entity';
+import { GuidanceProcess } from './entities/guidance-process.entity';
+import { WeeklyReport } from './entities/weekly-report.entity';
+import { WeeklyReportIndividualContribution } from './entities/weekly-report-individual-contribution.entity';
+import { ThesisTask } from './entities/thesis-task.entity';
 import { ReviewAssignment } from './entities/review-assignment.entity';
+import { ThesisGroup } from './entities/thesis-group.entity';
+import { ThesisGroupMember } from './entities/thesis-group-member.entity';
 import { Student } from '../student/entities/student.entity';
 import { Instructor } from '../instructor/entities/instructor.entity';
 import { Department } from '../organization/entities/department.entity';
+import { Faculty } from '../organization/entities/faculty.entity';
 import { Class } from '../organization/entities/class.entity';
 import { Users } from '../user/user.entity';
 import { SocketGateway } from '../socket/socket.gateway';
@@ -48,6 +55,8 @@ export class ThesisService {
     private instructorRepository: Repository<Instructor>,
     @InjectRepository(Department)
     private departmentRepository: Repository<Department>,
+    @InjectRepository(Faculty)
+    private facultyRepository: Repository<Faculty>,
     @InjectRepository(Class)
     private classRepository: Repository<Class>,
     @InjectRepository(ThesisRoundClass)
@@ -56,12 +65,141 @@ export class ThesisService {
     private studentThesisRoundRepository: Repository<StudentThesisRound>,
     @InjectRepository(Thesis)
     private thesisRepository: Repository<Thesis>,
+    @InjectRepository(GuidanceProcess)
+    private guidanceProcessRepository: Repository<GuidanceProcess>,
+    @InjectRepository(WeeklyReport)
+    private weeklyReportRepository: Repository<WeeklyReport>,
+    @InjectRepository(WeeklyReportIndividualContribution)
+    private weeklyReportIndividualContributionRepository: Repository<WeeklyReportIndividualContribution>,
+    @InjectRepository(ThesisTask)
+    private thesisTaskRepository: Repository<ThesisTask>,
     @InjectRepository(ReviewAssignment)
     private reviewAssignmentRepository: Repository<ReviewAssignment>,
+    @InjectRepository(ThesisGroup)
+    private thesisGroupRepository: Repository<ThesisGroup>,
+    @InjectRepository(ThesisGroupMember)
+    private thesisGroupMemberRepository: Repository<ThesisGroupMember>,
     @InjectRepository(Users)
     private userRepository: Repository<Users>,
     private socketGateway: SocketGateway,
+    private dataSource: DataSource,
   ) {}
+
+  private makeThesisCode(thesisRoundId: number, thesisGroupId: number, topicRegistrationId: number): string {
+    const roundPart = thesisRoundId.toString(36);
+    const groupPart = thesisGroupId.toString(36);
+    const regPart = topicRegistrationId.toString(36);
+    const code = `T${roundPart}_${groupPart}_${regPart}`.toUpperCase();
+    return code.length <= 50 ? code : code.slice(0, 50);
+  }
+
+  private addDays(base: Date, days: number): Date {
+    const d = new Date(base);
+    d.setDate(d.getDate() + days);
+    return d;
+  }
+
+  private async resolveDepartmentForHeadInstructor(headInstructor: Instructor): Promise<Department | null> {
+    const departmentByInstructorId = await this.departmentRepository.findOne({
+      where: { headId: headInstructor.id },
+      relations: ['head'],
+    });
+    if (departmentByInstructorId) {
+      return departmentByInstructorId;
+    }
+
+    const departmentByUserId = await this.departmentRepository.findOne({
+      where: { headId: headInstructor.userId },
+      relations: ['head'],
+    });
+    if (!departmentByUserId) {
+      if (!headInstructor.departmentId) {
+        return null;
+      }
+      return this.departmentRepository.findOne({
+        where: { id: headInstructor.departmentId },
+        relations: ['head'],
+      });
+    }
+
+    if (departmentByUserId.head && departmentByUserId.head.userId !== headInstructor.userId) {
+      if (!headInstructor.departmentId) {
+        return null;
+      }
+      return this.departmentRepository.findOne({
+        where: { id: headInstructor.departmentId },
+        relations: ['head'],
+      });
+    }
+
+    return departmentByUserId;
+  }
+
+  private makeIndividualGroupCode(thesisRoundId: number, studentId: number): string {
+    const roundPart = thesisRoundId.toString(36);
+    const studentPart = studentId.toString(36);
+    const code = `I${roundPart}_${studentPart}`.toUpperCase();
+    return code.length <= 20 ? code : code.slice(0, 20);
+  }
+
+  private async ensureIndividualGroup(studentId: number, thesisRoundId: number): Promise<ThesisGroup> {
+    const existingGroup = await this.thesisGroupRepository.findOne({
+      where: {
+        thesisRoundId,
+        createdBy: studentId,
+        groupType: 'INDIVIDUAL',
+      },
+    });
+
+    if (existingGroup) {
+      const existingMember = await this.thesisGroupMemberRepository.findOne({
+        where: { thesisGroupId: existingGroup.id, studentId },
+      });
+
+      if (!existingMember) {
+        await this.thesisGroupMemberRepository.save(
+          this.thesisGroupMemberRepository.create({
+            thesisGroupId: existingGroup.id,
+            thesisRoundId,
+            studentId,
+            role: 'SOLO',
+            joinMethod: 'AUTO',
+            isActive: true,
+            joinedAt: new Date(),
+          }),
+        );
+      }
+
+      return existingGroup;
+    }
+
+    const newGroup = this.thesisGroupRepository.create({
+      groupCode: this.makeIndividualGroupCode(thesisRoundId, studentId),
+      thesisRoundId,
+      groupType: 'INDIVIDUAL',
+      createdBy: studentId,
+      minMembers: 1,
+      maxMembers: 1,
+      currentMembers: 1,
+      status: 'READY',
+    });
+
+    const savedGroup = await this.thesisGroupRepository.save(newGroup);
+
+    await this.thesisGroupMemberRepository.save(
+      this.thesisGroupMemberRepository.create({
+        thesisGroupId: savedGroup.id,
+        thesisRoundId,
+        studentId,
+        role: 'SOLO',
+        joinMethod: 'AUTO',
+        isActive: true,
+        joinedAt: new Date(),
+      }),
+    );
+
+    return savedGroup;
+  }
 
   // Lấy studentId từ userId
   async getStudentIdByUserId(userId: number): Promise<number | null> {
@@ -169,19 +307,19 @@ export class ThesisService {
       throw new NotFoundException('Giảng viên không tồn tại');
     }
 
+    const thesisGroup = await this.ensureIndividualGroup(studentId, thesisRoundId);
+
     const existingRegistration = await this.topicRegistrationRepository.findOne({
     where: {
-      studentId,
+      thesisGroupId: thesisGroup.id,
       thesisRoundId
     },
-    relations: ['student', 'student.user'] 
   });
 
   if (existingRegistration) {
     console.log('Existing registration found:', {
       registrationId: existingRegistration.id,
-      studentId: existingRegistration.studentId,
-      userId: existingRegistration.student?.user?.id,
+      thesisGroupId: existingRegistration.thesisGroupId,
       thesisRoundId: existingRegistration.thesisRoundId
     });
     
@@ -222,13 +360,15 @@ export class ThesisService {
 
     // Tạo đăng ký đề tài
     const topicRegistration = this.topicRegistrationRepository.create({
-      studentId,
+      thesisGroupId: thesisGroup.id,
       thesisRoundId,
       instructorId,
       proposedTopicId,
       selfProposedTitle,
       selfProposedDescription,
       selectionReason,
+      instructorStatus: 'PENDING',
+      headStatus: 'PENDING',
       registrationDate: new Date()
     });
 
@@ -260,9 +400,7 @@ export class ThesisService {
     const registrationWithRelations = await this.topicRegistrationRepository.findOne({
       where: { id: savedRegistration.id },
       relations: [
-        'student',
-        'student.user',
-        'student.classEntity',
+        'thesisGroup',
         'thesisRound',
         'proposedTopic',
         'instructor',
@@ -279,16 +417,17 @@ export class ThesisService {
       message: 'Đăng ký đề tài thành công',
       data: {
         id: registrationWithRelations.id,
+        thesisGroupId: registrationWithRelations.thesisGroupId,
         student: {
-          id: registrationWithRelations.student?.id || null,
-          studentCode: registrationWithRelations.student?.studentCode || null,
-          fullName: registrationWithRelations.student?.user?.fullName || null,
-          email: registrationWithRelations.student?.user?.email || null,
-          phone: registrationWithRelations.student?.user?.phone || null,
-          class: registrationWithRelations.student?.classEntity ? {
-            id: registrationWithRelations.student.classEntity.id,
-            className: registrationWithRelations.student.classEntity.className,
-            classCode: registrationWithRelations.student.classEntity.classCode
+          id: student.id,
+          studentCode: student.studentCode,
+          fullName: student.user?.fullName || null,
+          email: student.user?.email || null,
+          phone: student.user?.phone || null,
+          class: student.classEntity ? {
+            id: student.classEntity.id,
+            className: student.classEntity.className,
+            classCode: student.classEntity.classCode
           } : null
         },
         thesisRound: registrationWithRelations.thesisRound ? {
@@ -317,7 +456,13 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -329,7 +474,7 @@ export class ThesisService {
     }
 
     if (status) {
-      queryBuilder.andWhere('registration.instructorStatus = :status', { status });
+      queryBuilder.andWhere('UPPER(TRIM(registration.instructorStatus)) = :status', { status: status.toUpperCase() });
     }
 
     queryBuilder.orderBy('registration.registrationDate', 'DESC');
@@ -339,21 +484,23 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         // Lấy tên đề tài (từ proposedTopic hoặc selfProposedTitle)
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -392,21 +539,35 @@ export class ThesisService {
         id: registrationId,
         instructorId 
       },
-      relations: ['student', 'student.user', 'thesisRound', 'thesisRound.department', 'thesisRound.department.head', 'thesisRound.department.head.user', 'instructor', 'instructor.user', 'proposedTopic']
+      relations: [
+        'thesisGroup',
+        'thesisGroup.members',
+        'thesisGroup.members.student',
+        'thesisGroup.members.student.user',
+        'thesisGroup.members.student.classEntity',
+        'thesisRound',
+        'thesisRound.department',
+        'thesisRound.department.head',
+        'thesisRound.department.head.user',
+        'instructor',
+        'instructor.user',
+        'proposedTopic'
+      ]
     });
 
     if (!registration) {
       throw new NotFoundException('Đăng ký đề tài không tồn tại hoặc không thuộc quyền quản lý của bạn');
     }
 
-    if (registration.instructorStatus !== 'Pending') {
+    if ((registration.instructorStatus || '').toUpperCase() !== 'PENDING') {
       throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
     }
 
     const approvalDate = new Date();
     const updateData: Partial<TopicRegistration> = {
-      instructorStatus: approved ? 'Approved' : 'Rejected',
-      instructorApprovalDate: approvalDate
+      instructorStatus: approved ? 'APPROVED' : 'REJECTED',
+      instructorApprovalDate: approvalDate,
+      headStatus: approved ? 'PENDING' : 'REJECTED',
     };
 
     if (!approved && rejectionReason) {
@@ -416,20 +577,28 @@ export class ThesisService {
     await this.topicRegistrationRepository.update(registrationId, updateData);
 
     // Gửi thông báo real-time cho sinh viên
+    const activeGroupMembers = (registration.thesisGroup?.members ?? []).filter((m) => m.isActive !== false);
+    const leaderMember =
+      activeGroupMembers.find((m) => ['LEADER', 'SOLO'].includes((m.role || '').toUpperCase())) ?? activeGroupMembers[0];
+    const leaderStudent = leaderMember?.student;
+    const groupStudentUserIds = Array.from(
+      new Set(
+        activeGroupMembers
+          .map((m) => m.student?.user?.id)
+          .filter((id): id is number => typeof id === 'number' && Number.isFinite(id)),
+      ),
+    );
+
     try {
-      if (registration.student?.user?.id) {
-        await this.socketGateway.sendToUser(
-          registration.student.user.id.toString(),
-          'topic_registration_updated',
-          {
-            registrationId: registration.id,
-            status: approved ? 'Approved' : 'Rejected',
-            message: approved ? 
-              'Đăng ký đề tài của bạn đã được giáo viên hướng dẫn phê duyệt, đang chờ trưởng bộ môn phê duyệt' : 
-              'Đăng ký đề tài của bạn đã bị từ chối',
-            rejectionReason: rejectionReason
-          }
-        );
+      for (const userId of groupStudentUserIds) {
+        await this.socketGateway.sendToUser(userId.toString(), 'topic_registration_updated', {
+          registrationId: registration.id,
+          status: approved ? 'Approved' : 'Rejected',
+          message: approved
+            ? 'Đăng ký đề tài của bạn đã được giáo viên hướng dẫn phê duyệt, đang chờ trưởng bộ môn phê duyệt'
+            : 'Đăng ký đề tài của bạn đã bị từ chối',
+          rejectionReason: rejectionReason,
+        });
       }
     } catch (socketError) {
       console.error('Error sending socket notification to student:', socketError);
@@ -445,8 +614,8 @@ export class ThesisService {
           'new_registration_for_approval',
           {
             registrationId: registration.id,
-            studentName: registration.student?.user?.fullName || 'N/A',
-            studentCode: registration.student?.studentCode || 'N/A',
+            studentName: leaderStudent?.user?.fullName || 'N/A',
+            studentCode: leaderStudent?.studentCode || 'N/A',
             instructorName: registration.instructor?.user?.fullName || 'N/A',
             topicTitle: topicTitle,
             registrationDate: registration.registrationDate,
@@ -464,7 +633,7 @@ export class ThesisService {
       message: approved ? 'Phê duyệt đăng ký thành công. Đăng ký đã được gửi lên trưởng bộ môn để phê duyệt' : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected',
+        status: approved ? 'APPROVED' : 'REJECTED',
         nextStep: approved ? 'Chờ trưởng bộ môn phê duyệt' : null
       }
     };
@@ -678,11 +847,17 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
+      .innerJoin('registration.thesisGroup', 'thesisGroup')
+      .innerJoin(
+        'thesisGroup.members',
+        'groupMember',
+        'groupMember.studentId = :studentId AND groupMember.isActive = true',
+        { studentId },
+      )
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
       .leftJoinAndSelect('registration.instructor', 'instructor')
       .leftJoinAndSelect('instructor.user', 'user')
       .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
-      .where('registration.studentId = :studentId', { studentId })
       .orderBy('registration.registrationDate', 'DESC');
 
     // Phân trang
@@ -735,6 +910,186 @@ export class ThesisService {
         hasNextPage: hasNextPage3,
         hasPrevPage: hasPrevPage3
       }
+    };
+  }
+
+  private async findLatestApprovedThesisForStudent(studentId: number): Promise<Thesis | null> {
+    const thesis = await this.thesisRepository
+      .createQueryBuilder('thesis')
+      .leftJoinAndSelect('thesis.supervisor', 'supervisor')
+      .leftJoinAndSelect('supervisor.user', 'supervisorUser')
+      .leftJoinAndSelect('supervisor.department', 'supervisorDepartment')
+      .leftJoinAndSelect('thesis.thesisRound', 'thesisRound')
+      .leftJoinAndSelect('thesis.topicRegistration', 'registration')
+      .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
+      .leftJoinAndSelect('thesis.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect('thesisGroup.members', 'member', 'member.isActive = true')
+      .leftJoinAndSelect('member.student', 'student')
+      .leftJoinAndSelect('student.user', 'studentUser')
+      .where('student.id = :studentId', { studentId })
+      .andWhere("UPPER(TRIM(registration.headStatus)) = 'APPROVED'")
+      .orderBy('thesis.createdAt', 'DESC')
+      .getOne();
+
+    return thesis ?? null;
+  }
+
+  async getMyApprovedThesis(studentId: number) {
+    const thesis = await this.findLatestApprovedThesisForStudent(studentId);
+
+    if (!thesis) {
+      return {
+        success: true,
+        data: null,
+        message: 'Chưa có đồ án đã được phê duyệt',
+      };
+    }
+
+    const activeMembers = (thesis.thesisGroup?.members ?? []).filter((m) => m.isActive !== false);
+
+    return {
+      success: true,
+      data: {
+        id: thesis.id,
+        thesisCode: thesis.thesisCode,
+        topicTitle: thesis.topicTitle,
+        topicDescription: thesis.topicDescription ?? null,
+        startDate: thesis.startDate ?? null,
+        endDate: thesis.endDate ?? null,
+        status: thesis.status,
+        thesisRound: thesis.thesisRound
+          ? {
+              id: thesis.thesisRound.id,
+              roundName: thesis.thesisRound.roundName,
+              roundCode: thesis.thesisRound.roundCode,
+              startDate: thesis.thesisRound.startDate ?? null,
+              endDate: thesis.thesisRound.endDate ?? null,
+            }
+          : null,
+        registration: thesis.topicRegistration
+          ? {
+              id: thesis.topicRegistration.id,
+              instructorStatus: thesis.topicRegistration.instructorStatus,
+              headStatus: thesis.topicRegistration.headStatus,
+              instructorApprovalDate: thesis.topicRegistration.instructorApprovalDate ?? null,
+              headApprovalDate: thesis.topicRegistration.headApprovalDate ?? null,
+            }
+          : null,
+        supervisor: thesis.supervisor
+          ? {
+              id: thesis.supervisor.id,
+              instructorCode: thesis.supervisor.instructorCode ?? null,
+              fullName: thesis.supervisor.user?.fullName ?? null,
+              email: thesis.supervisor.user?.email ?? null,
+              phone: thesis.supervisor.user?.phone ?? null,
+              department: thesis.supervisor.department
+                ? {
+                    id: thesis.supervisor.department.id,
+                    departmentCode: thesis.supervisor.department.departmentCode,
+                    departmentName: thesis.supervisor.department.departmentName,
+                  }
+                : null,
+            }
+          : null,
+        members: activeMembers.map((m) => ({
+          id: m.student?.id ?? null,
+          studentCode: m.student?.studentCode ?? null,
+          fullName: m.student?.user?.fullName ?? null,
+          email: m.student?.user?.email ?? null,
+          role: m.role ?? null,
+        })),
+      },
+    };
+  }
+
+  async getMyWeeklyReports(studentId: number) {
+    const thesis = await this.findLatestApprovedThesisForStudent(studentId);
+
+    if (!thesis) {
+      return {
+        success: true,
+        data: null,
+        message: 'Chưa có đồ án đã được phê duyệt',
+      };
+    }
+
+    const reports = await this.weeklyReportRepository.find({
+      where: { thesisId: thesis.id },
+      order: { weekNumber: 'ASC' },
+    });
+
+    return {
+      success: true,
+      data: {
+        thesisId: thesis.id,
+        reports: reports.map((r) => ({
+          id: r.id,
+          weekNumber: r.weekNumber,
+          reportDate: r.reportDate,
+          studentStatus: r.studentStatus,
+          instructorStatus: r.instructorStatus,
+          workCompleted: r.workCompleted ?? null,
+          resultsAchieved: r.resultsAchieved ?? null,
+          difficultiesEncountered: r.difficultiesEncountered ?? null,
+          nextWeekPlan: r.nextWeekPlan ?? null,
+          attachmentFile: r.attachmentFile ?? null,
+          instructorFeedback: r.instructorFeedback ?? null,
+          weeklyScore: r.weeklyScore ?? null,
+          feedbackDate: r.feedbackDate ?? null,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        })),
+      },
+    };
+  }
+
+  async submitWeeklyReport(studentId: number, reportId: number, submitDto: SubmitWeeklyReportDto) {
+    const hasAnyContent =
+      submitDto.workCompleted !== undefined ||
+      submitDto.resultsAchieved !== undefined ||
+      submitDto.difficultiesEncountered !== undefined ||
+      submitDto.nextWeekPlan !== undefined ||
+      submitDto.attachmentFile !== undefined;
+
+    if (!hasAnyContent) {
+      throw new BadRequestException('Vui lòng nhập nội dung báo cáo');
+    }
+
+    const report = await this.weeklyReportRepository
+      .createQueryBuilder('report')
+      .innerJoinAndSelect('report.thesis', 'thesis')
+      .innerJoin('thesis.thesisGroup', 'thesisGroup')
+      .innerJoin('thesisGroup.members', 'member', 'member.studentId = :studentId AND member.isActive = true', {
+        studentId,
+      })
+      .where('report.id = :reportId', { reportId })
+      .getOne();
+
+    if (!report) {
+      throw new NotFoundException('Không tìm thấy báo cáo tuần');
+    }
+
+    if ((report.instructorStatus || '').toUpperCase() === 'APPROVED') {
+      throw new BadRequestException('Báo cáo tuần đã được giảng viên đánh giá, không thể chỉnh sửa');
+    }
+
+    const updateData: Partial<WeeklyReport> = {
+      ...submitDto,
+      submittedBy: studentId,
+      studentStatus: 'SUBMITTED',
+    };
+
+    await this.weeklyReportRepository.update(reportId, updateData);
+
+    const updated = await this.weeklyReportRepository.findOne({ where: { id: reportId } });
+    if (!updated) {
+      throw new NotFoundException('Không tìm thấy báo cáo tuần sau khi cập nhật');
+    }
+
+    return {
+      success: true,
+      message: 'Nộp báo cáo tuần thành công',
+      data: updated,
     };
   }
 
@@ -1083,6 +1438,28 @@ export class ThesisService {
         finalDepartmentId = instructor.departmentId;
       } else if (!departmentId) {
         throw new BadRequestException('Giáo viên chưa được gán vào bộ môn. Vui lòng liên hệ quản trị viên.');
+      }
+    }
+
+    if (finalDepartmentId) {
+      const department = await this.departmentRepository.findOne({
+        where: { id: finalDepartmentId },
+      });
+
+      if (!department) {
+        throw new BadRequestException(
+          `Bộ môn (departmentId=${finalDepartmentId}) không tồn tại`,
+        );
+      }
+    }
+
+    if (facultyId) {
+      const faculty = await this.facultyRepository.findOne({
+        where: { id: facultyId },
+      });
+
+      if (!faculty) {
+        throw new BadRequestException(`Khoa (facultyId=${facultyId}) không tồn tại`);
       }
     }
 
@@ -1935,14 +2312,12 @@ export class ThesisService {
       relations: ['department']
     });
 
-    if (!instructor || !instructor.departmentId) {
-      throw new NotFoundException('Không tìm thấy thông tin bộ môn');
+    if (!instructor) {
+      throw new NotFoundException('Không tìm thấy thông tin trưởng bộ môn');
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(instructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -1953,11 +2328,17 @@ export class ThesisService {
 
   // Lấy danh sách đăng ký chờ trưởng bộ môn phê duyệt
   async getRegistrationsForHeadApproval(departmentId: number, query: GetRegistrationsForHeadApprovalDto) {
-    const { thesisRoundId, status, page = 1, limit = 10 } = query;
+    const { thesisRoundId, page = 1, limit = 10 } = query;
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -1965,16 +2346,13 @@ export class ThesisService {
       .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
       .leftJoinAndSelect('registration.instructor', 'instructor')
       .leftJoinAndSelect('instructor.user', 'instructorUser')
-      .where('department.id = :departmentId', { departmentId })
-      .andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus: 'Approved' })
-      .andWhere('registration.headStatus = :headStatus', { headStatus: 'Pending' });
+      .leftJoinAndSelect('instructor.department', 'instructorDepartment')
+      .where('(department.id = :departmentId OR instructorDepartment.id = :departmentId)', { departmentId })
+      .andWhere('UPPER(TRIM(registration.instructorStatus)) = :instructorStatus', { instructorStatus: 'APPROVED' })
+      .andWhere('(registration.headStatus IS NULL OR UPPER(TRIM(registration.headStatus)) = :headStatus)', { headStatus: 'PENDING' });
 
     if (thesisRoundId) {
       queryBuilder.andWhere('registration.thesisRoundId = :thesisRoundId', { thesisRoundId });
-    }
-
-    if (status) {
-      queryBuilder.andWhere('registration.headStatus = :status', { status });
     }
 
     queryBuilder.orderBy('registration.instructorApprovalDate', 'DESC');
@@ -1992,20 +2370,22 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -2057,14 +2437,12 @@ export class ThesisService {
       relations: ['department']
     });
 
-    if (!instructor || !instructor.departmentId) {
-      throw new NotFoundException('Không tìm thấy thông tin bộ môn');
+    if (!instructor) {
+      throw new NotFoundException('Không tìm thấy thông tin trưởng bộ môn');
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(instructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -2079,7 +2457,13 @@ export class ThesisService {
 
     const queryBuilder = this.topicRegistrationRepository
       .createQueryBuilder('registration')
-      .leftJoinAndSelect('registration.student', 'student')
+      .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+      .leftJoinAndSelect(
+        'thesisGroup.members',
+        'groupMember',
+        "groupMember.isActive = true AND groupMember.role IN ('LEADER','SOLO')",
+      )
+      .leftJoinAndSelect('groupMember.student', 'student')
       .leftJoinAndSelect('student.user', 'user')
       .leftJoinAndSelect('student.classEntity', 'class')
       .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
@@ -2087,7 +2471,8 @@ export class ThesisService {
       .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
       .leftJoinAndSelect('registration.instructor', 'instructor')
       .leftJoinAndSelect('instructor.user', 'instructorUser')
-      .where('department.id = :departmentId', { departmentId });
+      .leftJoinAndSelect('instructor.department', 'instructorDepartment')
+      .where('(department.id = :departmentId OR instructorDepartment.id = :departmentId)', { departmentId });
 
     // Filter theo đợt luận văn
     if (thesisRoundId) {
@@ -2096,12 +2481,19 @@ export class ThesisService {
 
     // Filter theo trạng thái giáo viên
     if (instructorStatus) {
-      queryBuilder.andWhere('registration.instructorStatus = :instructorStatus', { instructorStatus });
+      queryBuilder.andWhere('UPPER(TRIM(registration.instructorStatus)) = :instructorStatus', { instructorStatus: instructorStatus.toUpperCase() });
     }
 
     // Filter theo trạng thái trưởng bộ môn
     if (headStatus) {
-      queryBuilder.andWhere('registration.headStatus = :headStatus', { headStatus });
+      if (headStatus.toUpperCase() === 'PENDING') {
+        queryBuilder.andWhere(
+          '(registration.headStatus IS NULL OR UPPER(TRIM(registration.headStatus)) = :headStatus)',
+          { headStatus: headStatus.toUpperCase() },
+        );
+      } else {
+        queryBuilder.andWhere('UPPER(TRIM(registration.headStatus)) = :headStatus', { headStatus: headStatus.toUpperCase() });
+      }
     }
 
     queryBuilder.orderBy('registration.registrationDate', 'DESC');
@@ -2119,20 +2511,22 @@ export class ThesisService {
     return {
       success: true,
       data: registrations.map(registration => {
+        const leaderStudent = registration.thesisGroup?.members?.[0]?.student;
         const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || null;
         
         return {
           id: registration.id,
+          thesisGroupId: registration.thesisGroupId,
           student: {
-            id: registration.student?.id || null,
-            studentCode: registration.student?.studentCode || null,
-            fullName: registration.student?.user?.fullName || null,
-            email: registration.student?.user?.email || null,
-            phone: registration.student?.user?.phone || null,
-            class: registration.student?.classEntity ? {
-              id: registration.student.classEntity.id,
-              className: registration.student.classEntity.className,
-              classCode: registration.student.classEntity.classCode
+            id: leaderStudent?.id || null,
+            studentCode: leaderStudent?.studentCode || null,
+            fullName: leaderStudent?.user?.fullName || null,
+            email: leaderStudent?.user?.email || null,
+            phone: leaderStudent?.user?.phone || null,
+            class: leaderStudent?.classEntity ? {
+              id: leaderStudent.classEntity.id,
+              className: leaderStudent.classEntity.className,
+              classCode: leaderStudent.classEntity.classCode
             } : null
           },
           thesisRound: registration.thesisRound ? {
@@ -2191,78 +2585,257 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId },
-      relations: ['head']
-    });
+    const department = await this.resolveDepartmentForHeadInstructor(headInstructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
     }
 
-    // Lấy thông tin đăng ký
-    const registration = await this.topicRegistrationRepository.findOne({
-      where: { id: registrationId },
-      relations: [
-        'student', 
-        'student.user', 
-        'thesisRound', 
-        'thesisRound.department',
-        'instructor',
-        'instructor.user',
-        'proposedTopic'
-      ]
+    const result = await this.dataSource.transaction(async (manager) => {
+      const topicRegistrationRepo = manager.getRepository(TopicRegistration);
+      const thesisRepo = manager.getRepository(Thesis);
+      const guidanceProcessRepo = manager.getRepository(GuidanceProcess);
+      const weeklyReportRepo = manager.getRepository(WeeklyReport);
+
+      const registration = await topicRegistrationRepo
+        .createQueryBuilder('registration')
+        .setLock('pessimistic_write')
+        .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
+        .leftJoinAndSelect('thesisGroup.members', 'groupMember')
+        .leftJoinAndSelect('groupMember.student', 'student')
+        .leftJoinAndSelect('student.user', 'studentUser')
+        .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
+        .leftJoinAndSelect('registration.instructor', 'instructor')
+        .leftJoinAndSelect('instructor.user', 'instructorUser')
+        .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
+        .where('registration.id = :registrationId', { registrationId })
+        .getOne();
+
+      if (!registration) {
+        throw new NotFoundException('Đăng ký đề tài không tồn tại');
+      }
+
+      const roundDepartmentId = registration.thesisRound?.departmentId ?? null;
+      const instructorDepartmentId = registration.instructor?.departmentId ?? null;
+      const isInHeadDepartment =
+        (roundDepartmentId !== null && roundDepartmentId === department.id) ||
+        (instructorDepartmentId !== null && instructorDepartmentId === department.id);
+
+      if (!isInHeadDepartment) {
+        throw new ForbiddenException('Đăng ký đề tài không thuộc bộ môn của bạn');
+      }
+
+      if ((registration.instructorStatus || '').toUpperCase() !== 'APPROVED') {
+        throw new BadRequestException('Giáo viên hướng dẫn chưa phê duyệt đăng ký này');
+      }
+
+      const normalizedHeadStatus = (registration.headStatus || '').trim().toUpperCase();
+      if (normalizedHeadStatus !== 'PENDING') {
+        const thesis = await thesisRepo.findOne({
+          where: { topicRegistrationId: registrationId },
+          select: ['id'],
+        });
+
+        if (approved && normalizedHeadStatus === 'APPROVED') {
+          return {
+            alreadyProcessed: true,
+            payload: {
+              success: true,
+              message: 'Đăng ký đề tài đã được phê duyệt trước đó',
+              data: {
+                registrationId,
+                status: 'APPROVED',
+                instructorStatus: registration.instructorStatus,
+                headStatus: registration.headStatus,
+                isFullyApproved: true,
+                thesisId: thesis?.id ?? null,
+                weeklyReportScheduleCreated: false,
+                weeklyReportWeeksTotal: null,
+              },
+            },
+          };
+        }
+
+        if (!approved && normalizedHeadStatus === 'REJECTED') {
+          return {
+            alreadyProcessed: true,
+            payload: {
+              success: true,
+              message: 'Đăng ký đề tài đã bị từ chối trước đó',
+              data: {
+                registrationId,
+                status: 'REJECTED',
+                instructorStatus: registration.instructorStatus,
+                headStatus: registration.headStatus,
+                isFullyApproved: false,
+                thesisId: thesis?.id ?? null,
+                weeklyReportScheduleCreated: false,
+                weeklyReportWeeksTotal: null,
+              },
+            },
+          };
+        }
+
+        throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
+      }
+
+      const activeGroupMembers = (registration.thesisGroup?.members ?? []).filter((m) => m.isActive !== false);
+      const leaderMember =
+        activeGroupMembers.find((m) => ['LEADER', 'SOLO'].includes((m.role || '').toUpperCase())) ?? activeGroupMembers[0];
+      const leaderStudent = leaderMember?.student;
+      const groupStudentUserIds = Array.from(
+        new Set(
+          activeGroupMembers
+            .map((m) => m.student?.user?.id)
+            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id)),
+        ),
+      );
+
+      let thesisId: number | null = null;
+      let weeklyReportScheduleCreated = false;
+      let weeklyReportWeeksTotal: number | null = null;
+
+      if (approved) {
+        const submittedBy = leaderStudent?.id ?? activeGroupMembers[0]?.student?.id ?? null;
+
+        if (submittedBy) {
+          let thesis = await thesisRepo.findOne({
+            where: { topicRegistrationId: registrationId },
+          });
+
+          if (!thesis) {
+            const topicTitle = registration.proposedTopic?.topicTitle || registration.selfProposedTitle || 'N/A';
+
+            thesis = await thesisRepo.save(
+              thesisRepo.create({
+                thesisCode: this.makeThesisCode(registration.thesisRoundId, registration.thesisGroupId, registrationId),
+                topicTitle,
+                thesisGroupId: registration.thesisGroupId,
+                supervisorId: registration.instructorId,
+                thesisRoundId: registration.thesisRoundId,
+                topicRegistrationId: registrationId,
+                startDate: registration.thesisRound?.startDate ?? new Date(),
+                endDate: registration.thesisRound?.endDate ?? undefined,
+                status: 'In Progress',
+              }),
+            );
+          }
+
+          thesisId = thesis.id;
+
+          const guidanceProcesses = await guidanceProcessRepo.find({
+            where: { thesisRoundId: thesis.thesisRoundId, status: true },
+            order: { weekNumber: 'ASC' },
+          });
+
+          const weekNumbers = Array.from(
+            new Set(
+              (guidanceProcesses.length > 0
+                ? guidanceProcesses
+                : Array.from({ length: 15 }, (_, i) => ({ weekNumber: i + 1 }))).map((p: { weekNumber: number }) => p.weekNumber),
+            ),
+          ).filter((w) => Number.isFinite(w) && w > 0);
+
+          const existingReports = await weeklyReportRepo.find({
+            where: { thesisId: thesis.id },
+            select: ['weekNumber'],
+          });
+
+          const existingWeekNumbers = new Set(existingReports.map((r) => r.weekNumber));
+          const startDate = thesis.startDate ? new Date(thesis.startDate) : new Date();
+
+          const newReports = weekNumbers
+            .filter((weekNumber) => !existingWeekNumbers.has(weekNumber))
+            .map((weekNumber) =>
+              weeklyReportRepo.create({
+                thesisId: thesis.id,
+                weekNumber,
+                reportDate: this.addDays(startDate, (weekNumber - 1) * 7),
+                submittedBy,
+                studentStatus: 'PENDING',
+                instructorStatus: 'PENDING',
+              }),
+            );
+
+          if (newReports.length > 0) {
+            await weeklyReportRepo.createQueryBuilder().insert().values(newReports).orIgnore().execute();
+            weeklyReportScheduleCreated = true;
+          }
+
+          weeklyReportWeeksTotal = weekNumbers.length;
+        }
+      }
+
+      const approvalDate = new Date();
+      const updateData: Partial<TopicRegistration> = {
+        headStatus: approved ? 'APPROVED' : 'REJECTED',
+        headApprovalDate: approvalDate,
+      };
+
+      if (!approved && rejectionReason) {
+        updateData.headRejectionReason = rejectionReason;
+      }
+
+      await topicRegistrationRepo.update(registrationId, updateData);
+
+      return {
+        alreadyProcessed: false,
+        registration,
+        leaderStudent,
+        groupStudentUserIds,
+        thesisId,
+        weeklyReportScheduleCreated,
+        weeklyReportWeeksTotal,
+      };
     });
 
-    if (!registration) {
-      throw new NotFoundException('Đăng ký đề tài không tồn tại');
+    if (result.alreadyProcessed) {
+      return result.payload;
     }
 
-    // Kiểm tra đăng ký có thuộc bộ môn của trưởng bộ môn không
-    if (registration.thesisRound?.departmentId !== department.id) {
-      throw new ForbiddenException('Đăng ký đề tài không thuộc bộ môn của bạn');
-    }
-
-    // Kiểm tra giáo viên hướng dẫn đã phê duyệt chưa
-    if (registration.instructorStatus !== 'Approved') {
-      throw new BadRequestException('Giáo viên hướng dẫn chưa phê duyệt đăng ký này');
-    }
-
-    // Kiểm tra trưởng bộ môn đã xử lý chưa
-    if (registration.headStatus !== 'Pending') {
-      throw new BadRequestException('Đăng ký đề tài đã được xử lý rồi');
-    }
-
-    const approvalDate = new Date();
-    const updateData: Partial<TopicRegistration> = {
-      headStatus: approved ? 'Approved' : 'Rejected',
-      headApprovalDate: approvalDate
-    };
-
-    if (!approved && rejectionReason) {
-      updateData.headRejectionReason = rejectionReason;
-    }
-
-    await this.topicRegistrationRepository.update(registrationId, updateData);
+    const { registration, leaderStudent, groupStudentUserIds, thesisId, weeklyReportScheduleCreated, weeklyReportWeeksTotal } = result;
 
     // Gửi thông báo real-time cho sinh viên
     try {
-      if (registration.student?.user?.id) {
-        await this.socketGateway.sendToUser(
-          registration.student.user.id.toString(),
-          'topic_registration_updated',
-          {
-            registrationId: registration.id,
-            status: approved ? 'FullyApproved' : 'RejectedByHead',
-            message: approved ? 
-              'Đăng ký đề tài của bạn đã được trưởng bộ môn phê duyệt. Đăng ký đã hoàn tất!' : 
-              'Đăng ký đề tài của bạn đã bị trưởng bộ môn từ chối',
-            rejectionReason: rejectionReason
-          }
-        );
+      for (const userId of groupStudentUserIds) {
+        await this.socketGateway.sendToUser(userId.toString(), 'topic_registration_updated', {
+          registrationId: registration.id,
+          thesisId: thesisId,
+          supervisor: registration.instructor
+            ? {
+                id: registration.instructor.id,
+                instructorCode: registration.instructor.instructorCode ?? null,
+                fullName: registration.instructor.user?.fullName ?? null,
+                email: registration.instructor.user?.email ?? null,
+              }
+            : null,
+          status: approved ? 'FullyApproved' : 'RejectedByHead',
+          message: approved
+            ? 'Đăng ký đề tài của bạn đã được trưởng bộ môn phê duyệt. Đăng ký đã hoàn tất!'
+            : 'Đăng ký đề tài của bạn đã bị trưởng bộ môn từ chối',
+          rejectionReason: rejectionReason,
+        });
       }
     } catch (socketError) {
       console.error('Error sending socket notification to student:', socketError);
+    }
+
+    if (approved) {
+      try {
+        if (thesisId) {
+          for (const userId of groupStudentUserIds) {
+            await this.socketGateway.sendToUser(userId.toString(), 'weekly_report_schedule_created', {
+              thesisId,
+              registrationId: registration.id,
+              weeksTotal: weeklyReportWeeksTotal,
+              message: 'Đề tài đã được phê duyệt. Vui lòng báo cáo tiến độ hàng tuần theo lịch.',
+              scheduleCreated: weeklyReportScheduleCreated,
+            });
+          }
+        }
+      } catch (socketError) {
+        console.error('Error sending weekly report schedule notification to student:', socketError);
+      }
     }
 
     // Gửi thông báo cho giáo viên hướng dẫn
@@ -2273,11 +2846,11 @@ export class ThesisService {
           'registration_head_approval_updated',
           {
             registrationId: registration.id,
-            studentName: registration.student?.user?.fullName || 'N/A',
+            studentName: leaderStudent?.user?.fullName || 'N/A',
             status: approved ? 'Approved' : 'Rejected',
             message: approved ? 
-              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã được trưởng bộ môn phê duyệt` : 
-              `Đăng ký đề tài của sinh viên ${registration.student?.user?.fullName || 'N/A'} đã bị trưởng bộ môn từ chối`
+              `Đăng ký đề tài của sinh viên ${leaderStudent?.user?.fullName || 'N/A'} đã được trưởng bộ môn phê duyệt` : 
+              `Đăng ký đề tài của sinh viên ${leaderStudent?.user?.fullName || 'N/A'} đã bị trưởng bộ môn từ chối`
           }
         );
       }
@@ -2290,10 +2863,13 @@ export class ThesisService {
       message: approved ? 'Phê duyệt đăng ký thành công' : 'Từ chối đăng ký thành công',
       data: {
         registrationId,
-        status: approved ? 'Approved' : 'Rejected',
+        status: approved ? 'APPROVED' : 'REJECTED',
         instructorStatus: registration.instructorStatus,
-        headStatus: approved ? 'Approved' : 'Rejected',
-        isFullyApproved: approved
+        headStatus: approved ? 'APPROVED' : 'REJECTED',
+        isFullyApproved: approved,
+        thesisId,
+        weeklyReportScheduleCreated,
+        weeklyReportWeeksTotal,
       }
     };
   }
@@ -2553,10 +3129,15 @@ export class ThesisService {
       });
 
       // Tìm department mà instructor này là head
-      department = await this.departmentRepository.findOne({
-        where: { headId: instructorId },
-        relations: ['faculty']
-      });
+      if (instructor) {
+        department = await this.resolveDepartmentForHeadInstructor(instructor);
+        if (department) {
+          department = await this.departmentRepository.findOne({
+            where: { id: department.id },
+            relations: ['faculty'],
+          });
+        }
+      }
     }
 
     // Nếu không có instructor hoặc không tìm thấy, thử tìm từ userId
@@ -2568,10 +3149,13 @@ export class ThesisService {
 
       // Nếu có instructor, tìm department mà instructor này là head
       if (instructor) {
-        department = await this.departmentRepository.findOne({
-          where: { headId: instructor.id },
-          relations: ['faculty']
-        });
+        department = await this.resolveDepartmentForHeadInstructor(instructor);
+        if (department) {
+          department = await this.departmentRepository.findOne({
+            where: { id: department.id },
+            relations: ['faculty'],
+          });
+        }
       }
     }
 
@@ -2587,10 +3171,17 @@ export class ThesisService {
     // Nếu không có user, trả về thông tin rỗng
     if (!user) {
       return {
+        userId: userId ?? null,
+        instructorId: instructorId ?? null,
+        username: null,
         instructorCode: null,
         fullName: null,
         email: null,
         phone: null,
+        gender: null,
+        dateOfBirth: null,
+        address: null,
+        avatar: null,
         academicTitle: null,
         degree: null,
         specialization: null,
@@ -2619,10 +3210,17 @@ export class ThesisService {
 
     // Trả về thông tin có gì lấy đấy
     return {
+      userId: user.id,
+      instructorId: instructor?.id || null,
+      username: user.username || null,
       instructorCode: instructor?.instructorCode || null,
       fullName: user.fullName || null,
       email: user.email || null,
       phone: user.phone || null,
+      gender: user.gender || null,
+      dateOfBirth: user.dateOfBirth || null,
+      address: user.address || null,
+      avatar: user.avatar || null,
       academicTitle: instructor?.academicTitle || null,
       degree: instructor?.degree || null,
       specialization: instructor?.specialization || null,
@@ -2672,16 +3270,24 @@ export class ThesisService {
 
     // Lấy thông tin user
     let user: Users | null = null;
-    if (instructor?.user) {
-      user = instructor.user;
-    } else if (userId) {
-      user = await this.userRepository.findOne({
-        where: { id: userId }
-      });
+    if (!userId) {
+      throw new BadRequestException('Không tìm thấy thông tin người dùng');
     }
+
+    user = instructor?.user ?? await this.userRepository.findOne({ where: { id: userId } });
 
     if (!user) {
       throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    if (updateDto.email && updateDto.email !== user.email) {
+      const existingUser = await this.userRepository.findOne({
+        where: { email: updateDto.email },
+      });
+
+      if (existingUser && existingUser.id !== user.id) {
+        throw new ConflictException('Email đã được sử dụng');
+      }
     }
 
     // Cập nhật thông tin user
@@ -2694,15 +3300,76 @@ export class ThesisService {
     if (updateDto.phone !== undefined) {
       user.phone = updateDto.phone;
     }
+    if (updateDto.gender !== undefined) {
+      user.gender = updateDto.gender;
+    }
+    if (updateDto.dateOfBirth !== undefined) {
+      user.dateOfBirth = new Date(updateDto.dateOfBirth);
+    }
+    if (updateDto.address !== undefined) {
+      user.address = updateDto.address;
+    }
+    if (updateDto.avatar !== undefined) {
+      user.avatar = updateDto.avatar;
+    }
 
     // Lưu thay đổi user
     await this.userRepository.save(user);
 
-    // Cập nhật thông tin instructor nếu có
+    const hasInstructorFields =
+      updateDto.departmentId !== undefined ||
+      updateDto.instructorCode !== undefined ||
+      updateDto.yearsOfExperience !== undefined ||
+      updateDto.academicTitle !== undefined ||
+      updateDto.degree !== undefined ||
+      updateDto.specialization !== undefined;
+
+    if (!instructor && hasInstructorFields) {
+      if (!updateDto.instructorCode) {
+        throw new BadRequestException('Mã giảng viên là bắt buộc khi tạo mới');
+      }
+
+      if (!updateDto.departmentId) {
+        throw new BadRequestException('Bộ môn là bắt buộc khi tạo mới');
+      }
+
+      const departmentExists = await this.departmentRepository.findOne({
+        where: { id: updateDto.departmentId },
+      });
+
+      if (!departmentExists) {
+        throw new NotFoundException('Không tìm thấy bộ môn');
+      }
+
+      const existingInstructor = await this.instructorRepository.findOne({
+        where: { instructorCode: updateDto.instructorCode },
+      });
+
+      if (existingInstructor) {
+        throw new ConflictException('Mã giảng viên đã tồn tại');
+      }
+
+      instructor = await this.instructorRepository.save(
+        this.instructorRepository.create({
+          userId,
+          instructorCode: updateDto.instructorCode,
+          departmentId: updateDto.departmentId,
+          degree: updateDto.degree,
+          academicTitle: updateDto.academicTitle,
+          specialization: updateDto.specialization,
+          yearsOfExperience: updateDto.yearsOfExperience ?? 0,
+          status: true,
+        }),
+      );
+
+      instructor = await this.instructorRepository.findOne({
+        where: { id: instructor.id },
+        relations: ['user', 'department'],
+      });
+    }
+
     if (instructor) {
-      // Kiểm tra và cập nhật mã giảng viên nếu có thay đổi
       if (updateDto.instructorCode !== undefined && updateDto.instructorCode !== instructor.instructorCode) {
-        // Kiểm tra mã giảng viên đã tồn tại chưa (trừ chính bản thân instructor này)
         const existingInstructor = await this.instructorRepository.findOne({
           where: { instructorCode: updateDto.instructorCode }
         });
@@ -2714,7 +3381,18 @@ export class ThesisService {
         instructor.instructorCode = updateDto.instructorCode;
       }
 
-      // Cập nhật số năm kinh nghiệm
+      if (updateDto.departmentId !== undefined && updateDto.departmentId !== instructor.departmentId) {
+        const departmentExists = await this.departmentRepository.findOne({
+          where: { id: updateDto.departmentId },
+        });
+
+        if (!departmentExists) {
+          throw new NotFoundException('Không tìm thấy bộ môn');
+        }
+
+        instructor.departmentId = updateDto.departmentId;
+      }
+
       if (updateDto.yearsOfExperience !== undefined) {
         instructor.yearsOfExperience = updateDto.yearsOfExperience;
       }
@@ -2735,10 +3413,13 @@ export class ThesisService {
     // Tìm department mà instructor này là head (nếu có)
     let department: Department | null = null;
     if (instructor) {
-      department = await this.departmentRepository.findOne({
-        where: { headId: instructor.id },
-        relations: ['faculty']
-      });
+      department = await this.resolveDepartmentForHeadInstructor(instructor);
+      if (department) {
+        department = await this.departmentRepository.findOne({
+          where: { id: department.id },
+          relations: ['faculty'],
+        });
+      }
     }
 
     // Sử dụng department từ instructor nếu không tìm thấy từ headId
@@ -2749,66 +3430,51 @@ export class ThesisService {
       });
     }
 
-    // Lấy lại thông tin đầy đủ
-    if (instructor) {
-      const updatedInstructor = await this.instructorRepository.findOne({
-        where: { id: instructor.id },
-        relations: ['user', 'department', 'department.faculty']
-      });
-
-      if (updatedInstructor) {
-        const updatedUser = updatedInstructor.user || user;
-        const updatedDept = department || updatedInstructor.department;
-
-        return {
-          instructorCode: updatedInstructor.instructorCode || null,
-          fullName: updatedUser.fullName || null,
-          email: updatedUser.email || null,
-          phone: updatedUser.phone || null,
-          academicTitle: updatedInstructor.academicTitle || null,
-          degree: updatedInstructor.degree || null,
-          specialization: updatedInstructor.specialization || null,
-          yearsOfExperience: updatedInstructor.yearsOfExperience || 0,
-          department: updatedDept ? {
-            id: updatedDept.id,
-            departmentCode: updatedDept.departmentCode,
-            departmentName: updatedDept.departmentName,
-            faculty: updatedDept.faculty ? {
-              id: updatedDept.faculty.id,
-              facultyCode: updatedDept.faculty.facultyCode,
-              facultyName: updatedDept.faculty.facultyName
-            } : null
-          } : null,
-          isFirstTime: !(updatedInstructor.instructorCode && updatedInstructor.departmentId && updatedUser.fullName && updatedUser.email)
-        };
-      }
-    }
-
-    // Nếu không có instructor, chỉ trả về thông tin user
-    const updatedUser = await this.userRepository.findOne({
+    const refreshedUser = await this.userRepository.findOne({
       where: { id: user.id }
     });
 
+    const updatedInstructor = instructor
+      ? await this.instructorRepository.findOne({
+        where: { id: instructor.id },
+        relations: ['user', 'department', 'department.faculty']
+      })
+      : null;
+
+    const responseUser = updatedInstructor?.user ?? refreshedUser ?? user;
+    const responseInstructor = updatedInstructor ?? instructor;
+    const responseDept = department ?? updatedInstructor?.department ?? null;
+
+    const hasCompleteInfo = !!(responseInstructor?.instructorCode && responseInstructor?.departmentId && responseUser.fullName && responseUser.email);
+
     return {
-      instructorCode: null,
-      fullName: updatedUser?.fullName || null,
-      email: updatedUser?.email || null,
-      phone: updatedUser?.phone || null,
-      academicTitle: null,
-      degree: null,
-      specialization: null,
-      yearsOfExperience: 0,
-      department: department ? {
-        id: department.id,
-        departmentCode: department.departmentCode,
-        departmentName: department.departmentName,
-        faculty: department.faculty ? {
-          id: department.faculty.id,
-          facultyCode: department.faculty.facultyCode,
-          facultyName: department.faculty.facultyName
+      userId: responseUser.id,
+      instructorId: responseInstructor?.id || null,
+      username: responseUser.username || null,
+      instructorCode: responseInstructor?.instructorCode || null,
+      fullName: responseUser.fullName || null,
+      email: responseUser.email || null,
+      phone: responseUser.phone || null,
+      gender: responseUser.gender || null,
+      dateOfBirth: responseUser.dateOfBirth || null,
+      address: responseUser.address || null,
+      avatar: responseUser.avatar || null,
+      academicTitle: responseInstructor?.academicTitle || null,
+      degree: responseInstructor?.degree || null,
+      specialization: responseInstructor?.specialization || null,
+      yearsOfExperience: responseInstructor?.yearsOfExperience || 0,
+      department: responseDept ? {
+        id: responseDept.id,
+        departmentCode: responseDept.departmentCode,
+        departmentName: responseDept.departmentName,
+        faculty: responseDept.faculty ? {
+          id: responseDept.faculty.id,
+          facultyCode: responseDept.faculty.facultyCode,
+          facultyName: responseDept.faculty.facultyName
         } : null
       } : null,
-      isFirstTime: true
+      isFirstTime: !hasCompleteInfo,
+      ...(hasCompleteInfo ? {} : { message: 'Vui lòng điền đầy đủ thông tin để hoàn thiện hồ sơ trưởng bộ môn.' })
     };
   }
 
@@ -2819,7 +3485,15 @@ export class ThesisService {
     // Lấy thông tin thesis
     const thesis = await this.thesisRepository.findOne({
       where: { id: thesisId },
-      relations: ['thesisRound', 'thesisRound.department', 'student', 'student.classEntity', 'student.classEntity.major', 'student.classEntity.major.department']
+      relations: [
+        'thesisRound',
+        'thesisRound.department',
+        'thesisGroup',
+        'thesisGroup.creator',
+        'thesisGroup.creator.classEntity',
+        'thesisGroup.creator.classEntity.major',
+        'thesisGroup.creator.classEntity.major.department',
+      ]
     });
 
     if (!thesis) {
@@ -2827,9 +3501,14 @@ export class ThesisService {
     }
 
     // Kiểm tra xem có phải trưởng bộ môn không
-    const department = await this.departmentRepository.findOne({
-      where: { headId: headInstructorId }
+    const headInstructor = await this.instructorRepository.findOne({
+      where: { id: headInstructorId },
     });
+    if (!headInstructor) {
+      throw new NotFoundException('Không tìm thấy thông tin trưởng bộ môn');
+    }
+
+    const department = await this.resolveDepartmentForHeadInstructor(headInstructor);
 
     if (!department) {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
@@ -2837,7 +3516,9 @@ export class ThesisService {
 
     // Kiểm tra thesis thuộc bộ môn của trưởng bộ môn
     // Có thể kiểm tra qua thesisRound.departmentId hoặc student.classEntity.major.departmentId
-    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+    const thesisDepartmentId =
+      thesis.thesisRound?.departmentId ||
+      thesis.thesisGroup?.creator?.classEntity?.major?.department?.id;
 
     if (!thesisDepartmentId || thesisDepartmentId !== department.id) {
       throw new ForbiddenException('Đề tài này không thuộc bộ môn của bạn');
@@ -2864,7 +3545,9 @@ export class ThesisService {
     }
 
     // Kiểm tra giáo viên phản biện thuộc cùng bộ môn với đề tài
-    const thesisDepartmentId = thesis.thesisRound?.departmentId || thesis.student?.classEntity?.major?.department?.id;
+    const thesisDepartmentId =
+      thesis.thesisRound?.departmentId ||
+      thesis.thesisGroup?.creator?.classEntity?.major?.department?.id;
     if (thesisDepartmentId && reviewer.departmentId !== thesisDepartmentId) {
       throw new BadRequestException('Giáo viên phản biện không thuộc bộ môn của đề tài này');
     }
@@ -2911,7 +3594,14 @@ export class ThesisService {
     // Lấy thông tin đầy đủ để trả về
     const savedAssignment = await this.reviewAssignmentRepository.findOne({
       where: { id: reviewAssignment.id },
-      relations: ['reviewer', 'reviewer.user', 'thesis', 'thesis.student', 'thesis.student.user']
+      relations: [
+        'reviewer',
+        'reviewer.user',
+        'thesis',
+        'thesis.thesisGroup',
+        'thesis.thesisGroup.creator',
+        'thesis.thesisGroup.creator.user',
+      ]
     });
 
     if (!savedAssignment) {
@@ -2928,9 +3618,9 @@ export class ThesisService {
           thesisCode: savedAssignment.thesis.thesisCode,
           topicTitle: savedAssignment.thesis.topicTitle,
           student: {
-            id: savedAssignment.thesis.student.id,
-            studentCode: savedAssignment.thesis.student.studentCode,
-            fullName: savedAssignment.thesis.student.user.fullName
+            id: savedAssignment.thesis.thesisGroup?.creator?.id || null,
+            studentCode: savedAssignment.thesis.thesisGroup?.creator?.studentCode || null,
+            fullName: savedAssignment.thesis.thesisGroup?.creator?.user?.fullName || null
           }
         },
         reviewer: {

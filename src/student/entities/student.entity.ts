@@ -5,13 +5,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
-  OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { Users } from '../../user/user.entity';
 import { Class } from '../../organization/entities/class.entity';
-import { TopicRegistration } from '../../thesis/entities/topic-registration.entity';
-import { Thesis } from '../../thesis/entities/thesis.entity';
 
 @Entity('students')
 export class Student {
@@ -30,7 +27,7 @@ export class Student {
   @Column({ name: 'admission_year', nullable: true })
   admissionYear?: number;
 
-  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
+  @Column({ type: 'decimal', precision: 4, scale: 2, nullable: true })
   gpa?: number;
 
   @Column({ name: 'credits_earned', default: 0 })
@@ -59,10 +56,4 @@ export class Student {
   @ManyToOne(() => Class, (classEntity) => classEntity.students)
   @JoinColumn({ name: 'class_id' })
   classEntity: Class;
-
-  @OneToMany(() => TopicRegistration, (topicRegistration) => topicRegistration.student)
-  topicRegistrations: TopicRegistration[];
-
-  @OneToMany(() => Thesis, (thesis) => thesis.student)
-  theses: Thesis[];
 }

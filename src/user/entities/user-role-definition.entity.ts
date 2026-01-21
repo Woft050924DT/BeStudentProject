@@ -7,7 +7,7 @@ import {
 import { UserRoleAssignment } from './usser-role-assignment.entity';
 
 @Entity('user_roles')
-export class UserRole {
+export class UserRoleDefinition {
   @PrimaryGeneratedColumn()
   id: number;
 

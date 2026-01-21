@@ -83,7 +83,7 @@ export class AuthController {
 
       if (accessToken) {
         try {
-          const payload = this.jwtService.verify(accessToken) as any;
+          const payload = this.jwtService.verify(accessToken);
           const exp = (payload.exp as number) * 1000; // Convert to milliseconds
           const now = Date.now();
           const ttl = Math.max(0, Math.floor((exp - now) / 1000));
@@ -94,11 +94,11 @@ export class AuthController {
           }
 
           // Xóa session của user nếu có
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+           
           if (payload.sub) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+             
             await this.redisService.del(`session:${String(payload.sub)}`);
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+             
             await this.redisService.del(`user:socket:${String(payload.sub)}`);
           }
         } catch {
@@ -109,11 +109,11 @@ export class AuthController {
       // Xóa refresh_token từ Redis (thêm vào blacklist)
       if (refreshToken) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+           
           const payload = this.jwtService.verify(refreshToken, {
             secret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'your-super-secret-jwt-key-here',
           });
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+           
           const exp = (payload.exp as number) * 1000;
           const now = Date.now();
           const ttl = Math.max(0, Math.floor((exp - now) / 1000));
