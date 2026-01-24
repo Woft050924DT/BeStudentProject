@@ -2591,25 +2591,50 @@ export class ThesisService {
       throw new ForbiddenException('Bạn không phải trưởng bộ môn');
     }
 
-    const result = await this.dataSource.transaction(async (manager) => {
+    type ApproveByHeadTxResult =
+      | {
+          alreadyProcessed: true;
+          payload: any;
+        }
+      | {
+          alreadyProcessed: false;
+          registration: TopicRegistration;
+          leaderStudent: Student | undefined;
+          groupStudentUserIds: number[];
+          thesisId: number | null;
+          weeklyReportScheduleCreated: boolean;
+          weeklyReportWeeksTotal: number | null;
+        };
+
+    const result = await this.dataSource.transaction<ApproveByHeadTxResult>(async (manager) => {
       const topicRegistrationRepo = manager.getRepository(TopicRegistration);
       const thesisRepo = manager.getRepository(Thesis);
       const guidanceProcessRepo = manager.getRepository(GuidanceProcess);
       const weeklyReportRepo = manager.getRepository(WeeklyReport);
 
-      const registration = await topicRegistrationRepo
+      const lockedRegistration = await topicRegistrationRepo
         .createQueryBuilder('registration')
         .setLock('pessimistic_write')
-        .leftJoinAndSelect('registration.thesisGroup', 'thesisGroup')
-        .leftJoinAndSelect('thesisGroup.members', 'groupMember')
-        .leftJoinAndSelect('groupMember.student', 'student')
-        .leftJoinAndSelect('student.user', 'studentUser')
-        .leftJoinAndSelect('registration.thesisRound', 'thesisRound')
-        .leftJoinAndSelect('registration.instructor', 'instructor')
-        .leftJoinAndSelect('instructor.user', 'instructorUser')
-        .leftJoinAndSelect('registration.proposedTopic', 'proposedTopic')
         .where('registration.id = :registrationId', { registrationId })
         .getOne();
+
+      if (!lockedRegistration) {
+        throw new NotFoundException('Đăng ký đề tài không tồn tại');
+      }
+
+      const registration = await topicRegistrationRepo.findOne({
+        where: { id: registrationId },
+        relations: [
+          'thesisGroup',
+          'thesisGroup.members',
+          'thesisGroup.members.student',
+          'thesisGroup.members.student.user',
+          'thesisRound',
+          'instructor',
+          'instructor.user',
+          'proposedTopic',
+        ],
+      });
 
       if (!registration) {
         throw new NotFoundException('Đăng ký đề tài không tồn tại');
@@ -2625,11 +2650,11 @@ export class ThesisService {
         throw new ForbiddenException('Đăng ký đề tài không thuộc bộ môn của bạn');
       }
 
-      if ((registration.instructorStatus || '').toUpperCase() !== 'APPROVED') {
+      if ((lockedRegistration.instructorStatus || '').toUpperCase() !== 'APPROVED') {
         throw new BadRequestException('Giáo viên hướng dẫn chưa phê duyệt đăng ký này');
       }
 
-      const normalizedHeadStatus = (registration.headStatus || '').trim().toUpperCase();
+      const normalizedHeadStatus = (lockedRegistration.headStatus || '').trim().toUpperCase();
       if (normalizedHeadStatus !== 'PENDING') {
         const thesis = await thesisRepo.findOne({
           where: { topicRegistrationId: registrationId },
@@ -2645,8 +2670,8 @@ export class ThesisService {
               data: {
                 registrationId,
                 status: 'APPROVED',
-                instructorStatus: registration.instructorStatus,
-                headStatus: registration.headStatus,
+                instructorStatus: lockedRegistration.instructorStatus,
+                headStatus: lockedRegistration.headStatus,
                 isFullyApproved: true,
                 thesisId: thesis?.id ?? null,
                 weeklyReportScheduleCreated: false,
@@ -2665,8 +2690,8 @@ export class ThesisService {
               data: {
                 registrationId,
                 status: 'REJECTED',
-                instructorStatus: registration.instructorStatus,
-                headStatus: registration.headStatus,
+                instructorStatus: lockedRegistration.instructorStatus,
+                headStatus: lockedRegistration.headStatus,
                 isFullyApproved: false,
                 thesisId: thesis?.id ?? null,
                 weeklyReportScheduleCreated: false,
@@ -2716,7 +2741,6 @@ export class ThesisService {
                 topicRegistrationId: registrationId,
                 startDate: registration.thesisRound?.startDate ?? new Date(),
                 endDate: registration.thesisRound?.endDate ?? undefined,
-                status: 'In Progress',
               }),
             );
           }
@@ -2752,8 +2776,6 @@ export class ThesisService {
                 weekNumber,
                 reportDate: this.addDays(startDate, (weekNumber - 1) * 7),
                 submittedBy,
-                studentStatus: 'PENDING',
-                instructorStatus: 'PENDING',
               }),
             );
 
